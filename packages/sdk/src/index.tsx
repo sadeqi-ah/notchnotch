@@ -1,5 +1,6 @@
-import { createElement, useSyncExternalStore, type ReactNode } from "react";
-import type { MediaRequest, MediaUpdate, NowPlayingState, TextSize, Tone } from "@notchnotch/protocol";
+import { createElement, type ReactNode } from "react";
+import type { MediaRequest, NowPlayingState, TextSize, Tone } from "@notchnotch/protocol";
+export * from "./connections";
 
 type Children = { children?: ReactNode };
 type SurfaceProps = Children & {
@@ -62,28 +63,4 @@ export function MusicPlayer({ state, onCommand }: { state: NowPlayingState; onCo
   return createElement("player", { media: state, onChange: (json?: string) => {
     if (json) onCommand(JSON.parse(json) as MediaRequest);
   } });
-}
-
-let nowPlaying: NowPlayingState | null = null;
-const mediaListeners = new Set<() => void>();
-declare global {
-  var __notchnotchMediaDispatch: ((event: MediaUpdate) => void) | undefined;
-  var __notchnotchSend: (json: string) => void;
-  var __notchnotchExtensionID: string;
-}
-globalThis.__notchnotchMediaDispatch = (event) => {
-  nowPlaying = event.state ?? null;
-  for (const listener of mediaListeners) listener();
-};
-const subscribeMedia = (listener: () => void) => {
-  mediaListeners.add(listener);
-  return () => { mediaListeners.delete(listener); };
-};
-/** Requires the media permission. The host owns access to players and their controls. */
-export function useNowPlaying() {
-  return useSyncExternalStore(subscribeMedia, () => nowPlaying, () => null);
-}
-export function controlMedia(request: MediaRequest) {
-  globalThis.__notchnotchSend(JSON.stringify({ protocolVersion: 1, type: "mediaCommand",
-    extensionID: globalThis.__notchnotchExtensionID, request }));
 }

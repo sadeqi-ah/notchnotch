@@ -1,5 +1,7 @@
 import Foundation
 import NotchProtocol
+import NotchConnections
+import AppKit
 
 @MainActor
 final class RunnerConnection {
@@ -13,19 +15,15 @@ final class RunnerConnection {
     private var failed = false
     private let onSnapshot: (Snapshot) -> Void
     private let onFailure: (String) -> Void
-    private let onMediaCommand: (MediaRequest) -> Void
+    private let directory: URL
+    private var broker: ConnectionBroker?
+    private let writer = DispatchQueue(label: "dev.notchnotch.runner-input", qos: .utility)
+    private var queuedBytes = 0
 
-    init(manifest: ExtensionManifest, onSnapshot: @escaping (Snapshot) -> Void,
-         onMediaCommand: @escaping (MediaRequest) -> Void, onFailure: @escaping (String) -> Void) {
+    init(manifest: ExtensionManifest, directory: URL, onSnapshot: @escaping (Snapshot) -> Void,
+         onFailure: @escaping (String) -> Void) {
         self.manifest = manifest; self.onSnapshot = onSnapshot; self.onFailure = onFailure
-        self.onMediaCommand = onMediaCommand
-    }
-
-    func sendMedia(_ state: NowPlayingState?) {
-        guard manifest.permissions.contains("media"), process.isRunning, !failed,
-              let data = try? JSONEncoder().encode(MediaUpdate(state: state)), data.count <= maximumMessageBytes else { return }
-        do { try input.fileHandleForWriting.write(contentsOf: data + Data([10])) }
-        catch { fail("Could not update music in \(manifest.name)") }
+        self.directory = directory
     }
 
     func start(executable: URL, bundle: URL) throws {
@@ -62,16 +60,62 @@ final class RunnerConnection {
     func send(action: String, value: String?) {
         guard process.isRunning, !failed,
               let data = try? JSONEncoder().encode(UserEvent(action: action, value: value)) else { return }
-        do { try input.fileHandleForWriting.write(contentsOf: data + Data([10])) }
-        catch { fail("Could not send event to \(manifest.name)") }
+        enqueue(data + Data([10]), failure: "Could not send event to \(manifest.name)")
     }
 
     func stop() {
         stopping = true
+        resetConnections()
         output.fileHandleForReading.readabilityHandler = nil
         errors.fileHandleForReading.readabilityHandler = nil
-        try? input.fileHandleForWriting.close()
         if process.isRunning { process.terminate() }
+        try? input.fileHandleForWriting.close()
+    }
+
+    func resetConnections() { broker?.stop(); broker = nil }
+
+    private func handleConnection(_ command: ConnectionCommand) {
+        if broker == nil {
+            broker = ConnectionBroker(manifest: manifest, directory: directory) { [manifest] id, target in
+                let definition = manifest.connections?[id]
+                let alert = NSAlert()
+                alert.messageText = "Allow \(manifest.name) to \(definition?.transport == .stdio ? "run a local tool" : "connect locally")?"
+                alert.informativeText = "Connection: \(id)\n\(target)\n\n" + (definition?.transport == .stdio
+                    ? "This tool runs with your user account and can access files and network. Allow only extensions and tools you trust."
+                    : "The extension can exchange data with this local service. Access ends when the extension is reloaded or connections are disconnected.")
+                alert.addButton(withTitle: "Allow for This Session")
+                alert.addButton(withTitle: "Don't Allow")
+                NSApp.activate(ignoringOtherApps: true)
+                return alert.runModal() == .alertFirstButtonReturn
+            } emit: { [weak self] json in self?.sendConnectionMessage(json) }
+        }
+        broker?.receive(command)
+    }
+
+    private func sendConnectionMessage(_ json: String) {
+        guard process.isRunning, !failed, json.utf8.count <= maximumMessageBytes else { return }
+        enqueue(Data((json + "\n").utf8), failure: "Could not deliver connection message to \(manifest.name)")
+    }
+
+    private func enqueue(_ data: Data, failure: String) {
+        guard !stopping, !failed, queuedBytes + data.count <= 524_288 else {
+            if !stopping, !failed { fail("\(manifest.name) is not keeping up with incoming messages") }
+            return
+        }
+        queuedBytes += data.count
+        let handle = input.fileHandleForWriting
+        writer.async { [weak self] in
+            do {
+                try handle.write(contentsOf: data)
+                Task { @MainActor [weak self] in self?.queuedBytes -= data.count }
+            } catch {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.queuedBytes -= data.count
+                    if !self.stopping { self.fail(failure) }
+                }
+            }
+        }
     }
 
     private func fail(_ message: String) {
@@ -103,13 +147,10 @@ final class RunnerConnection {
                     let notice = try JSONDecoder().decode(RuntimeNotice.self, from: line)
                     fail(notice.message)
                 case "log": break
-                case "mediaCommand":
-                    guard manifest.permissions.contains("media") else {
-                        throw ProtocolError.invalid("This extension has no media permission")
-                    }
-                    let message = try JSONDecoder().decode(MediaCommandMessage.self, from: line)
-                    try message.request.validate()
-                    onMediaCommand(message.request)
+                case "connectionCommand":
+                    let command = try JSONDecoder().decode(ConnectionCommand.self, from: line)
+                    try command.validate(expectedExtensionID: manifest.id)
+                    handleConnection(command)
                 default: throw ProtocolError.invalid("Unknown extension message")
                 }
             } catch { fail(error.localizedDescription); return }

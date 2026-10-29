@@ -2,7 +2,7 @@ import Foundation
 import NotchProtocol
 
 /// Holds the latest user intent until a fresh player sample acknowledges it.
-/// Both the native control and host broker use this to bridge their async hops.
+/// Both the native control and extension helper use this to bridge their async hops.
 public struct PlaybackFeedback: Sendable {
     public static let acknowledgementTimeout: TimeInterval = 3
     private struct Pending<Value: Sendable>: Sendable {

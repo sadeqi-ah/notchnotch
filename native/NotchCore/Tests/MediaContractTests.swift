@@ -27,12 +27,12 @@ import NotchProtocol
     }
 }
 
-@Test func manifestsAllowOnlyTheExplicitMediaCapability() throws {
-    let json = #"{"id":"dev.example.music","name":"Music","version":"1","apiVersion":1,"entry":"bundle.js","permissions":["media"]}"#
+@Test func manifestsUseGenericConnectionsAndRejectTheRemovedMediaPermission() throws {
+    let json = #"{"id":"dev.example.music","name":"Music","version":"1","apiVersion":1,"entry":"bundle.js","permissions":["process"]}"#
     try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8)).validate()
-    for permission in ["filesystem", "shell", "network"] {
+    for permission in ["media", "filesystem", "shell", "network"] {
         #expect(throws: ProtocolError.self) {
-            try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.replacingOccurrences(of: "\"media\"", with: "\"\(permission)\"").utf8)).validate()
+            try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.replacingOccurrences(of: "\"process\"", with: "\"\(permission)\"").utf8)).validate()
         }
     }
 }

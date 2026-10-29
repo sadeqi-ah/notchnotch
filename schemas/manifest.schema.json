@@ -30,14 +30,91 @@
     },
     "permissions": {
       "type": "array",
-      "maxItems": 1,
+      "maxItems": 2,
       "uniqueItems": true,
       "items": {
         "enum": [
-          "media"
+          "local-network",
+          "process"
         ]
+      }
+    },
+    "connections": {
+      "type": "object",
+      "maxProperties": 8,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/connection"
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "connection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "transport",
+            "endpoint"
+          ],
+          "properties": {
+            "transport": {
+              "const": "http"
+            },
+            "endpoint": {
+              "type": "string",
+              "pattern": "^https?://(127\\.0\\.0\\.1|\\[::1\\]):[0-9]+/?$"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "transport",
+            "endpoint"
+          ],
+          "properties": {
+            "transport": {
+              "const": "websocket"
+            },
+            "endpoint": {
+              "type": "string",
+              "pattern": "^wss?://(127\\.0\\.0\\.1|\\[::1\\]):[0-9]+(/[^?#]*)?$"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "transport",
+            "executable"
+          ],
+          "properties": {
+            "transport": {
+              "const": "stdio"
+            },
+            "executable": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "arguments": {
+              "type": "array",
+              "maxItems": 22,
+              "items": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
 }

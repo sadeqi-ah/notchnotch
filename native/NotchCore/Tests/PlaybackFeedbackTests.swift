@@ -6,7 +6,7 @@ import NotchProtocol
 private let feedbackStart = Date(timeIntervalSince1970: 1_000)
 private func playback(id: String = "track", position: Double = 20, playing: Bool = true,
                       at date: Date = feedbackStart) -> NowPlayingState {
-    .init(id: id, eventID: id, player: .spotify, title: "Song", artist: "Artist", duration: 200,
+    .init(id: id, eventID: id, player: "com.spotify.client", title: "Song", artist: "Artist", duration: 200,
           position: position, isPlaying: playing, updatedAt: date.timeIntervalSince1970)
 }
 

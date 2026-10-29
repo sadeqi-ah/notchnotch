@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { createRenderer } from "@notchnotch/react-renderer";
-import type { MediaUpdate, UserEvent } from "@notchnotch/protocol";
+import type { ConnectionResponse, ConnectionEvent, UserEvent } from "@notchnotch/protocol";
 
 declare global {
   var __notchnotchExtensionID: string;
@@ -18,9 +18,9 @@ export function start(element: ReactNode) {
     })),
   );
   globalThis.__notchnotchDispatch = (json) => {
-    const message: UserEvent | MediaUpdate = JSON.parse(json);
-    if (message.protocolVersion === 1 && message.type === "media") {
-      globalThis.__notchnotchMediaDispatch?.(message);
+    const message: UserEvent | ConnectionResponse | ConnectionEvent = JSON.parse(json);
+    if (message.protocolVersion === 1 && (message.type === "connectionResponse" || message.type === "connectionEvent")) {
+      globalThis.__notchnotchConnectionDispatch?.(message);
       return;
     }
     const event = message as UserEvent;

@@ -4,5 +4,12 @@
   "version": "0.1.0",
   "apiVersion": 1,
   "entry": "bundle.js",
-  "permissions": ["media"]
+  "permissions": ["process"],
+  "connections": {
+    "player": {
+      "transport": "stdio",
+      "executable": "./helpers/MusicAdapter.app/Contents/MacOS/MusicAdapter",
+      "arguments": []
+    }
+  }
 }

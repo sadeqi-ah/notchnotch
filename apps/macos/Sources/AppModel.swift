@@ -16,7 +16,6 @@ final class AppModel {
     private var reservedCanvasHeight: CGFloat = 0
     private var hover = HoverState()
     private var idlePinned = false
-    let music = MusicProvider()
     var hoverExpanded: Bool { hover.isExpanded }
     var onLayoutChange: (() -> Void)?
     private var pointerInside = false
@@ -26,7 +25,7 @@ final class AppModel {
     private var scheduledPeek: ActivePeek?
     private(set) var lastPeekText = ""
     private var connections: [String: RunnerConnection] = [:]
-    private var reloads: [String: Date] = [:]
+    private var reloads: [String: String] = [:]
     private var reloadTimer: Timer?
 
     var isExpanded: Bool { platform.isExpanded || idlePinned || hoverExpanded }
@@ -36,7 +35,7 @@ final class AppModel {
     var wingSurface: HostedSurface? {
         presentation == .hovered ? platform.hoverSurface : platform.compact
     }
-    var musicNode: UINode? { displayedSurface?.surface.expanded.children.first { $0.type == .player } }
+    var playerNode: UINode? { displayedSurface?.surface.expanded.children.first { $0.type == .player } }
     var presentation: NotchPresentation {
         if isExpanded { return .expanded }
         if platform.activePeek != nil { return .peek }
@@ -59,11 +58,6 @@ final class AppModel {
     }
 
     func start() {
-        music.onChange = { [weak self] state in
-            guard let self else { return }
-            for connection in self.connections.values { connection.sendMedia(state) }
-        }
-        music.start()
         reloadExtensions()
         if ProcessInfo.processInfo.environment["NOTCHNOTCH_DEV"] == "1" {
             reloadTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -99,18 +93,19 @@ final class AppModel {
                 do {
                     let bundle = folder.appendingPathComponent(manifest.entry)
                     let modified = try bundle.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate ?? .distantPast
-                    guard force || reloads[manifest.id] != modified else { continue }
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.sortedKeys]
+                    let revision = "\(modified.timeIntervalSinceReferenceDate):\(try encoder.encode(manifest).base64EncodedString())"
+                    guard force || reloads[manifest.id] != revision else { continue }
                     connections[manifest.id]?.stop()
                     platform.removeExtension(manifest.id)
                     errors.removeValue(forKey: manifest.id)
-                    let connection = RunnerConnection(manifest: manifest) { [weak self] snapshot in
+                    let connection = RunnerConnection(manifest: manifest, directory: folder) { [weak self] snapshot in
                         guard let self else { return }
                         do { try self.platform.apply(snapshot, expectedExtensionID: manifest.id, allowPeek: !self.isExpanded) }
                         catch { self.errors[manifest.id] = error.localizedDescription }
                         self.synchronizePeek()
                         self.onLayoutChange?()
-                    } onMediaCommand: { [weak self] request in
-                        self?.music.perform(request)
                     } onFailure: { [weak self] message in
                         guard let self else { return }
                         self.platform.removeExtension(manifest.id)
@@ -119,9 +114,8 @@ final class AppModel {
                         self.onLayoutChange?()
                     }
                     connections[manifest.id] = connection
-                    reloads[manifest.id] = modified
+                    reloads[manifest.id] = revision
                     try connection.start(executable: runnerURL, bundle: bundle)
-                    connection.sendMedia(music.state)
                 } catch { errors[manifest.id] = error.localizedDescription }
             }
             errors.removeValue(forKey: "host")
@@ -134,9 +128,11 @@ final class AppModel {
         hoverTask?.cancel()
         peekTask?.cancel()
         reloadTimer?.invalidate()
-        music.stop()
         for connection in connections.values { connection.stop() }
         connections.removeAll()
+    }
+    func disconnectExtensions() {
+        for connection in connections.values { connection.resetConnections() }
     }
     func toggle() {
         if platform.isExpanded || idlePinned { close() }

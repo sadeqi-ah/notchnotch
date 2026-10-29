@@ -165,11 +165,19 @@ public struct ExtensionManifest: Codable, Sendable {
     public var apiVersion: Int
     public var entry: String
     public var permissions: [String]
+    public var connections: [String: ConnectionDefinition]?
     public func validate() throws {
         guard id.range(of: "^[a-z][a-z0-9.-]{2,79}$", options: .regularExpression) != nil,
               !name.isEmpty, apiVersion == 1, entry == "bundle.js", Set(permissions).count == permissions.count,
-              permissions.allSatisfy({ $0 == "media" }) else {
-            throw ProtocolError.invalid("Only API v1 bundles with the optional media permission are supported")
+              permissions.allSatisfy({ ["local-network", "process"].contains($0) }),
+              (connections?.count ?? 0) <= 8 else {
+            throw ProtocolError.invalid("Invalid API v1 extension manifest or permissions")
+        }
+        for (id, definition) in connections ?? [:] {
+            guard id.range(of: "^[a-z][a-z0-9-]{0,63}$", options: .regularExpression) != nil else {
+                throw ProtocolError.invalid("Invalid connection identifier")
+            }
+            try definition.validate(permissions: permissions)
         }
     }
 }

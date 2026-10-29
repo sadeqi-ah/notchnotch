@@ -75,29 +75,33 @@ The timer demo requests readiness/completion announcements; paused surfaces do n
 
 Tones: `primary`, `secondary`, `accent`, `success`, `warning`. Text sizes: `caption`, `body`, `title`, `timer`. The native host controls layout metrics, typography, window dimensions, and animation.
 
-React hooks, promises, `setTimeout`, `setInterval`, and `console` are available. DOM components, CSS, `fetch`, Node built-ins, native modules, and arbitrary system access are not supported. API v1 accepts only the optional `media` permission; all other capabilities are rejected. The SDK is a local workspace package and is not published to npm yet.
+React hooks, promises, `setTimeout`, `setInterval`, and `console` are available. DOM components, CSS, global `fetch`, Node built-ins and native modules are not exposed to extension JavaScript. API v1 accepts `local-network` and `process` permissions. Local networking and native tools additionally require named manifest connections and explicit session consent. The SDK is a local workspace package and is not published to npm yet.
+
+## Local services and third-party apps
+
+Use `localHTTP`, `ConnectionStream` and `JSONRPCClient` to connect to a declared loopback service or JSONL command-line tool. A bundled helper can adapt another app's public integration interface. Transport support is generic; new app integrations do not need changes to the host. See [Connections](connections.md) for manifest schemas, the Zeytun decision example, lifecycle/permission rules and the bundled Music adapter.
 
 
 ## Music extension
 
-Declare `"permissions": ["media"]` to receive brokered metadata from Spotify/Apple Music. The host asks for Automation consent through its **Connect** commands. `useNowPlaying()` returns the latest `NowPlayingState` or `null` when no connected player has a track. A paused surface should use `phase="paused"`: the host keeps it in the activity switcher but hides its compact wings.
+The bundled Music extension declares `process` and a named `stdio` connection to its own `helpers/MusicAdapter.app/Contents/MacOS/MusicAdapter`. It uses `ConnectionStream` and `JSONRPCClient` to receive playback snapshots and send controls. `extensions/music/helper-src` owns Spotify/Apple Music discovery, Automation permission requests, Apple events, polling, errors and playback confirmation. The host has no MusicProvider, media permission or privileged media-message route.
+
+`MusicPlayer`, `Artwork` and `Waveform` remain reusable native UI components. They render extension-supplied state and return user actions to the extension; displaying a player grants no access to an application. `NowPlayingState.player` is an opaque source identifier, with an optional `playerName` for accessibility.
 
 ```tsx
-const state = useNowPlaying();
-if (!state) return null;
-return <Activity id="music" title={state.title.slice(0, 128)} phase={state.isPlaying ? "active" : "paused"}>
-  <Activity.Compact leading={<Artwork source={state.artwork} />}
-    trailing={<Waveform playing={state.isPlaying} source={state.artwork} />} />
-  <Activity.Peek id={state.eventID} text={`${state.artist} • ${state.title}`.slice(0, 256)} />
-  <Activity.Expanded><MusicPlayer state={state} onCommand={controlMedia} /></Activity.Expanded>
-</Activity>;
+const stream = new ConnectionStream("player");
+const rpc = new JSONRPCClient(stream);
+// Subscribe before connecting; update React state on music/state notifications.
+const snapshot = await rpc.request("music/getState");
+await rpc.request("music/connect", { player: "com.spotify.client" }, 120_000);
+await rpc.request("music/command", { command: "seek", value: 0.5 });
 ```
 
-Import these components/hooks from `@notchnotch/sdk`. `controlMedia({ command, value? })` supports `playPause`, `previous`, `next`, `shuffle`, `repeat`, `openPlayer`, plus `seek` and `volume` with values in `[0, 1]`. The host validates the capability and request before accessing a player. `MusicPlayer` is native UI with accessible transport buttons and an adjustable seek bar; no extension JavaScript can send arbitrary Apple events or execute scripts. The artwork component accepts approved HTTPS artwork CDNs and bounded JPEG/PNG data, not filesystem URLs. There is no generic networking capability.
+These `music/*` methods are the bundled extension's protocol, not host APIs. See [the Music adapter contract](../extensions/music/README.md). The old `useNowPlaying`, `controlMedia` and `media` permission have been removed from this preview. A paused surface should use `phase="paused"` so it remains in the switcher while its compact wings stay hidden. The artwork component accepts approved HTTPS artwork CDNs and bounded JPEG/PNG data, not filesystem URLs.
 
 
 ## Idle hover selection
 
 The resting notch remains hidden for paused extensions. On hover, the host reveals the current compact activity first, then a pending question, then the most recently used activity, then an extension-declared resumable fallback. Opening an activity or a genuine phase transition records recency; routine metadata/progress updates do not reorder it. Click and long hover open the same chosen surface. If no contextual surface exists, neutral hub icons open the activity hub instead.
 
-An `Activity` may set `idlePreview` to opt into the resumable fallback; it must have `Activity.Compact`. This requests hover visibility only and never claims the resting notch. The music extension opts in when it has a track, so a paused song can be revealed even before the user has interacted with this host. Newly installed, unused timer/question launchers do not take priority merely because they are installed. Recency is local to the running host session and is cleared when a surface or extension disappears.
+An `Activity` may set `idlePreview` to opt into the resumable fallback; it must have `Activity.Compact`. This requests hover visibility only and never claims the resting notch. The music extension opts in, so users can reveal its connection setup or resume a paused song. Newly installed, unused timer/question launchers do not take priority merely because they are installed. Recency is local to the running host session and is cleared when a surface or extension disappears.

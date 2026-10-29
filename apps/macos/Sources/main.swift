@@ -102,9 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("Show activities", #selector(showActivities), ""),
             ("Show pending question", #selector(showPrompt), ""),
             ("Preview announcement", #selector(previewAnnouncement), ""),
-            ("Connect Spotify…", #selector(connectSpotify), ""),
-            ("Connect Apple Music…", #selector(connectAppleMusic), ""),
             ("Restart demos", #selector(restart), "r"),
+            ("Disconnect extension connections", #selector(disconnectExtensions), ""),
             ("Quit NotchNotch", #selector(quit), "q"),
         ] {
             let entry = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
@@ -164,13 +163,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.close()
     }
 
-    @objc private func connectSpotify() { model.music.connect(.spotify) }
-    @objc private func connectAppleMusic() { model.music.connect(.music) }
     @objc private func screenChanged() { layoutPanel() }
     @objc private func showActivities() { model.openFirst(); panel?.makeKey(); panel?.orderFrontRegardless() }
     @objc private func showPrompt() { model.openPrompt(); panel?.makeKey(); panel?.orderFrontRegardless() }
     @objc private func previewAnnouncement() { model.previewAnnouncement(); panel?.orderFrontRegardless() }
     @objc private func restart() { model.reloadExtensions(force: true) }
+    @objc private func disconnectExtensions() { model.disconnectExtensions() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {

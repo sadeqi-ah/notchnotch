@@ -1,4 +1,4 @@
-import { mkdir, cp, writeFile, chmod } from "node:fs/promises";
+import { mkdir, cp, writeFile, chmod, readdir, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { root } from "./build-extensions.mjs";
@@ -13,7 +13,14 @@ export async function packageApp() {
   await cp(path.join(root, ".build/debug/ExtensionRunner"), path.join(contents, "Helpers/ExtensionRunner"));
   await chmod(path.join(contents, "MacOS/NotchNotch"), 0o755);
   await chmod(path.join(contents, "Helpers/ExtensionRunner"), 0o755);
-  await cp(path.join(root, "dist/extensions"), path.join(contents, "Resources/extensions"), { recursive: true });
+  const extensions = path.join(contents, "Resources/extensions");
+  const source = path.join(root, "dist/extensions");
+  await mkdir(extensions, { recursive: true });
+  const names = await readdir(source);
+  for (const name of await readdir(extensions)) {
+    if (!names.includes(name)) await rm(path.join(extensions, name), { recursive: true, force: true });
+  }
+  await cp(source, extensions, { recursive: true });
   await writeFile(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -27,7 +34,7 @@ export async function packageApp() {
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSAppleEventsUsageDescription</key><string>Show the current song and control playback in Spotify and Apple Music from your notch.</string>
+<key>NSAppleEventsUsageDescription</key><string>Allow extensions you choose to read and control other applications.</string>
 </dict></plist>
 `);
   for (const target of [path.join(contents, "Helpers/ExtensionRunner"), app]) {

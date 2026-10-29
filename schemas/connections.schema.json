@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NotchNotch connection protocol v1",
+  "description": "Outer messages are limited to 256 KiB; stream messages and HTTP bodies to 64 KiB UTF-8. Transport-specific permissions are enforced by the host.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/command"
+    },
+    {
+      "$ref": "#/$defs/response"
+    },
+    {
+      "$ref": "#/$defs/event"
+    }
+  ],
+  "$defs": {
+    "json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/json"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/json"
+          }
+        }
+      ]
+    },
+    "command": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "type",
+        "extensionID",
+        "requestID",
+        "connectionID",
+        "operation"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "type": {
+          "const": "connectionCommand"
+        },
+        "extensionID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "requestID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "connectionID": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "operation": {
+          "enum": [
+            "request",
+            "open",
+            "send",
+            "close"
+          ]
+        },
+        "sessionID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "request": {
+          "$ref": "#/$defs/httpRequest"
+        },
+        "message": {
+          "$ref": "#/$defs/json"
+        }
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "type",
+        "requestID"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "type": {
+          "const": "connectionResponse"
+        },
+        "requestID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "result": {
+          "$ref": "#/$defs/json"
+        },
+        "error": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "type",
+        "connectionID",
+        "sessionID",
+        "event"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "const": 1
+        },
+        "type": {
+          "const": "connectionEvent"
+        },
+        "connectionID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sessionID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "event": {
+          "enum": [
+            "message",
+            "closed"
+          ]
+        },
+        "message": {
+          "$ref": "#/$defs/json"
+        },
+        "error": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      },
+      "additionalProperties": false
+    },
+    "httpRequest": {
+      "type": "object",
+      "required": [
+        "path",
+        "method"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/(?!/)"
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        "headers": {
+          "type": "object",
+          "maxProperties": 32,
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

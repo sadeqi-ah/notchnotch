@@ -117,7 +117,7 @@ struct MusicPlayerView: View {
             HStack(alignment: .top, spacing: 9) {
                 Button { onCommand(.init(command: .openPlayer)) } label: {
                     AlbumArtwork(source: state.artwork, size: 60)
-                }.buttonStyle(.plain).accessibilityLabel("Open \(state.player.name)")
+                }.buttonStyle(.plain).accessibilityLabel("Open \(state.playerName ?? "player")")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.title).font(.system(size: 14, weight: .bold)).foregroundStyle(.white.opacity(0.9))
                     Text(state.artist).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.45))

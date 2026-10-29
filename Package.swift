@@ -7,16 +7,20 @@ let package = Package(
     products: [
         .executable(name: "NotchNotch", targets: ["NotchNotch"]),
         .executable(name: "ExtensionRunner", targets: ["ExtensionRunner"]),
+        .executable(name: "MusicAdapter", targets: ["MusicAdapter"]),
     ],
     targets: [
         .target(name: "NotchProtocol", path: "native/NotchProtocol/Sources"),
         .target(name: "NotchCore", dependencies: ["NotchProtocol"], path: "native/NotchCore/Sources"),
         .target(name: "NotchRuntime", dependencies: ["NotchProtocol"], path: "native/NotchRuntime/Sources"),
+        .target(name: "NotchConnections", dependencies: ["NotchProtocol"], path: "native/NotchConnections/Sources"),
         .target(name: "NotchRenderer", dependencies: ["NotchProtocol", "NotchCore"], path: "native/NotchRenderer/Sources"),
         .executableTarget(name: "ExtensionRunner", dependencies: ["NotchRuntime"], path: "native/ExtensionRunner/Sources"),
-        .executableTarget(name: "NotchNotch", dependencies: ["NotchCore", "NotchRenderer"], path: "apps/macos/Sources"),
+        .executableTarget(name: "MusicAdapter", dependencies: ["NotchCore", "NotchProtocol"], path: "extensions/music/helper-src"),
+        .executableTarget(name: "NotchNotch", dependencies: ["NotchCore", "NotchRenderer", "NotchConnections"], path: "apps/macos/Sources"),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"], path: "native/NotchCore/Tests"),
         .testTarget(name: "NotchRuntimeTests", dependencies: ["NotchRuntime"], path: "native/NotchRuntime/Tests"),
+        .testTarget(name: "NotchConnectionsTests", dependencies: ["NotchConnections"], path: "native/NotchConnections/Tests"),
     ],
     swiftLanguageModes: [.v6]
 )

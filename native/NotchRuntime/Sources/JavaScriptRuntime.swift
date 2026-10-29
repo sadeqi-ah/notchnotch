@@ -60,11 +60,15 @@ public final class JavaScriptRuntime {
 
     public func receive(_ json: String) {
         if json.utf8.count <= maximumMessageBytes, let data = json.data(using: .utf8),
-           let update = try? JSONDecoder().decode(MediaUpdate.self, from: data),
-           update.protocolVersion == 1, update.type == "media" {
-            if let state = update.state, (try? state.validate()) == nil { return }
-            context?.objectForKeyedSubscript("__notchnotchDispatch")?.call(withArguments: [json])
-            return
+           let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           envelope["protocolVersion"] as? Int == 1 {
+            let type = envelope["type"] as? String
+            if type == "connectionResponse", (try? JSONDecoder().decode(ConnectionResponse.self, from: data)) != nil {
+                context?.objectForKeyedSubscript("__notchnotchDispatch")?.call(withArguments: [json]); return
+            }
+            if type == "connectionEvent", (try? JSONDecoder().decode(ConnectionEvent.self, from: data)) != nil {
+                context?.objectForKeyedSubscript("__notchnotchDispatch")?.call(withArguments: [json]); return
+            }
         }
         guard json.utf8.count <= 8192, let data = json.data(using: .utf8),
               let event = try? JSONDecoder().decode(UserEvent.self, from: data),

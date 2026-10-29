@@ -172,16 +172,10 @@ struct NotchView: View {
     }
 
     @ViewBuilder private var expandedPage: some View {
-        if let node = model.musicNode, let selected = model.displayedSurface {
-            VStack(spacing: 8) {
-                NativeNodeView(node: node, cameraHeight: model.topHeight) { action, value in
-                    onInteraction()
-                    model.send(extensionID: selected.key.extensionID, action: action, value: value)
-                }
-                if let error = model.music.lastCommandError {
-                    Text(error).font(.system(size: 11)).foregroundStyle(NotchPalette.color(.warning))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        if model.playerNode != nil, let selected = model.displayedSurface {
+            NativeNodeView(node: selected.surface.expanded, cameraHeight: model.topHeight) { action, value in
+                onInteraction()
+                model.send(extensionID: selected.key.extensionID, action: action, value: value)
             }
             .padding(.horizontal, 27).padding(.top, 14)
             .frame(width: geometry.expandedWidth)
@@ -199,17 +193,9 @@ struct NotchView: View {
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Nothing playing.").font(.system(size: 17, weight: .semibold))
+                        Text("No activities.").font(.system(size: 17, weight: .semibold))
                         Text("Your notch stays out of the way until an activity starts.")
                             .font(.system(size: 12)).foregroundStyle(.secondary)
-                        HStack(spacing: 16) {
-                            Button("Connect Spotify") { model.pinOpen(); model.music.connect(.spotify) }
-                            Button("Connect Apple Music") { model.pinOpen(); model.music.connect(.music) }
-                        }
-                        .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
-                        if let error = model.music.errors.values.sorted().first {
-                            Text(error).font(.system(size: 11)).foregroundStyle(.secondary)
-                        }
                         if !model.errors.isEmpty {
                             Button("Restart demos") { model.reloadExtensions(force: true) }.buttonStyle(.plain)
                         }

@@ -1,85 +1,60 @@
 import AppKit
 import Carbon
 import ImageIO
-import Observation
 import NotchProtocol
 import NotchCore
 
-/// All Apple events are serialized off the UI thread. Targets and commands are fixed;
-/// extension strings are never interpolated into executable scripts.
-private actor MusicAutomation {
+enum MediaPlayer: String, Codable, Sendable, CaseIterable {
+    case spotify = "com.spotify.client"
+    case music = "com.apple.Music"
+    var name: String { self == .spotify ? "Spotify" : "Apple Music" }
+}
+
+/// Permission dialogs have their own actor so a slow metadata read cannot queue
+/// an explicit Connect request behind the player.
+private actor MusicPermissions {
     func permission(for player: MediaPlayer, ask: Bool) -> Bool {
         let target = NSAppleEventDescriptor(bundleIdentifier: player.rawValue)
         return AEDeterminePermissionToAutomateTarget(target.aeDesc, AEEventClass(typeWildCard),
                                                     AEEventID(typeWildCard), ask) == noErr
     }
+}
 
+/// Read public Apple-event properties directly. NSAppleScript's internal event
+/// loop can stall in a headless helper even inside an AppleScript timeout block.
+private actor MusicAutomation {
     func read(_ player: MediaPlayer) throws -> NowPlayingState? {
-        let fields: String
-        if player == .spotify {
-            fields = "{id of t, name of t, artist of t, album of t, artwork url of t, duration of t, player position, sound volume, shuffling, repeating, player state as string}"
-        } else {
-            fields = "{persistent ID of t, name of t, artist of t, album of t, art, duration of t, player position, sound volume, shuffle enabled, (song repeat is not off), player state as string}"
-        }
-        let artwork = player == .music ? "set art to missing value\ntry\nset art to raw data of artwork 1 of t\nend try" : ""
-        let result = try execute("""
-        with timeout of 2 seconds
-          tell application id "\(player.rawValue)"
-            if player state is stopped then return {}
-            set t to current track
-            \(artwork)
-            return \(fields)
-          end tell
-        end timeout
-        """)
-        guard result.numberOfItems == 11 else { return nil }
-        func text(_ index: Int) -> String { String((result.atIndex(index)?.stringValue ?? "").prefix(256)) }
-        func number(_ index: Int) -> Double { result.atIndex(index)?.doubleValue ?? 0 }
+        let events = PlayerEvents(player: player, deadline: .now.addingTimeInterval(2))
+        let playback = try events.get("pPlS").enumCodeValue
+        if playback == PlayerEvents.code("kPSS") { return nil }
+        let track = try events.get("pTrk")
+        func text(_ code: String) throws -> String { String(try events.get(code, of: track).stringValue?.prefix(256) ?? "") }
+        let id = try text(player == .spotify ? "ID  " : "pPIS")
+        let title = try text("pnam")
+        guard !title.isEmpty else { return nil }
+        let artist = try text("pArt")
+        let album = try text("pAlb")
+        let duration = min(604_800, max(0, try events.get("pDur", of: track).doubleValue / (player == .spotify ? 1000 : 1)))
+        let position = min(duration, max(0, try events.get("pPos").doubleValue))
+        let sampledAt = Date.now.timeIntervalSince1970
+        let volume = min(1, max(0, try events.get("pVol").doubleValue / 100))
+        let shuffle = try events.get(player == .spotify ? "pShu" : "pShE").booleanValue
+        let repeatValue = try events.get(player == .spotify ? "pRep" : "pRpt")
+        let repeating = player == .spotify ? repeatValue.booleanValue : repeatValue.enumCodeValue != PlayerEvents.code("kRpO")
         var source: String?
-        if player == .spotify { source = text(5) }
-        else if let data = result.atIndex(5)?.data, let jpg = Self.thumbnail(data) {
+        if player == .spotify { source = try? text("aUrl") }
+        else if let artwork = try? PlayerEvents.element("cArt", index: 1, of: track),
+                let data = try? events.get("pRaw", of: artwork).data,
+                let jpg = Self.thumbnail(data) {
             source = "data:image/jpeg;base64," + jpg.base64EncodedString()
         }
         if let value = source, !NowPlayingState.isArtworkSource(value) { source = nil }
-        let duration = min(604_800, max(0, number(6) / (player == .spotify ? 1000 : 1)))
-        let state = NowPlayingState(id: player.rawValue + ":" + text(1), eventID: "pending", player: player,
-            title: text(2), artist: text(3), album: text(4), artwork: source, duration: duration,
-            position: min(duration, max(0, number(7))), isPlaying: text(11) == "playing",
-            volume: min(1, max(0, number(8) / 100)), shuffle: result.atIndex(9)?.booleanValue ?? false,
-            repeating: result.atIndex(10)?.booleanValue ?? false)
-        guard !state.title.isEmpty else { return nil }
+        let state = NowPlayingState(id: player.rawValue + ":" + id, eventID: "pending", player: player.rawValue, playerName: player.name,
+            title: title, artist: artist, album: album, artwork: source, duration: duration,
+            position: position, isPlaying: playback == PlayerEvents.code("kPSP"), volume: volume,
+            shuffle: shuffle, repeating: repeating, updatedAt: sampledAt)
         try state.validate()
         return state
-    }
-
-    func perform(_ request: MediaRequest, state: NowPlayingState) throws {
-        try request.validate()
-        let command: String
-        switch request.command {
-        case .playPause: command = state.isPlaying ? "pause" : "play"
-        case .next: command = "next track"
-        case .previous: command = "previous track"
-        case .seek: command = "set player position to \((request.value ?? 0) * state.duration)"
-        case .volume: command = "set sound volume to \(Int((request.value ?? 0) * 100))"
-        case .shuffle:
-            command = state.player == .spotify ? "set shuffling to not shuffling" : "set shuffle enabled to not shuffle enabled"
-        case .repeatMode:
-            command = state.player == .spotify ? "set repeating to not repeating" : "set song repeat to \(state.repeating ? "off" : "all")"
-        case .openPlayer: return
-        }
-        _ = try execute("with timeout of 2 seconds\ntell application id \"\(state.player.rawValue)\"\n\(command)\nend tell\nend timeout")
-    }
-
-    private func execute(_ source: String) throws -> NSAppleEventDescriptor {
-        guard let script = NSAppleScript(source: source) else { throw ProtocolError.invalid("Could not connect to the music player") }
-        var error: NSDictionary?
-        let result = script.executeAndReturnError(&error)
-        if let error {
-            let code = error[NSAppleScript.errorNumber] as? Int ?? 0
-            if code == -1743 { throw ProtocolError.invalid("Allow NotchNotch in System Settings → Privacy & Security → Automation") }
-            throw ProtocolError.invalid(error[NSAppleScript.errorMessage] as? String ?? "The music player did not respond")
-        }
-        return result
     }
 
     private static func thumbnail(_ data: Data) -> Data? {
@@ -92,12 +67,12 @@ private actor MusicAutomation {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, "public.jpeg" as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, thumb, [kCGImageDestinationLossyCompressionQuality: 0.72] as CFDictionary)
-        guard CGImageDestinationFinalize(destination), output.length < 45_000 else { return nil }
+        guard CGImageDestinationFinalize(destination), output.length < 36_000 else { return nil }
         return output as Data
     }
 }
 
-@MainActor @Observable
+@MainActor
 final class MusicProvider {
     private(set) var state: NowPlayingState?
     private(set) var errors: [MediaPlayer: String] = [:]
@@ -105,7 +80,8 @@ final class MusicProvider {
     private(set) var authorized: Set<MediaPlayer> = []
     var onChange: ((NowPlayingState?) -> Void)?
     private let automation = MusicAutomation()
-    private let spotifyCommands = SpotifyCommands()
+    private let permissions = MusicPermissions()
+    private let playerCommands = PlayerCommands()
     private var feedback = PlaybackFeedback()
     private var confirmedState: NowPlayingState?
     private var commandRevision = 0
@@ -113,6 +89,7 @@ final class MusicProvider {
     private struct QueuedCommand {
         let request: MediaRequest
         let state: NowPlayingState
+        let player: MediaPlayer
         let token: UUID
     }
     private var commands: [QueuedCommand] = []
@@ -149,35 +126,35 @@ final class MusicProvider {
         observers.removeAll()
     }
 
-    func connect(_ player: MediaPlayer) {
+    func connect(_ player: MediaPlayer) async {
+        defer { onChange?(state) }
         guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: player.rawValue) != nil else {
             errors[player] = "\(player.name) is not installed"
             return
         }
-        Task { [weak self] in
-            guard let self else { return }
-            if await self.automation.permission(for: player, ask: true) {
-                self.authorized.insert(player)
-                self.errors[player] = nil
-                await self.refresh()
-            } else { self.errors[player] = "Allow NotchNotch to control \(player.name) in System Settings → Privacy & Security → Automation" }
+        if await permissions.permission(for: player, ask: true) {
+            authorized.insert(player)
+            errors[player] = nil
+            await refresh()
+        } else {
+            errors[player] = "Allow the music helper to control \(player.name) in System Settings → Privacy & Security → Automation"
         }
     }
 
     func perform(_ request: MediaRequest) {
-        guard let state else { return }
+        guard let state, let player = MediaPlayer(rawValue: state.player) else { return }
         if request.command == .openPlayer {
-            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: state.player.rawValue) else { return }
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: state.player) else { return }
             NSWorkspace.shared.openApplication(at: url, configuration: .init())
             return
         }
-        guard authorized.contains(state.player), (try? request.validate()) != nil else { return }
+        guard authorized.contains(player), (try? request.validate()) != nil else { return }
         lastCommandError = nil
         commandRevision += 1
         let token = feedback.begin(request, state: state)
         self.state = feedback.displayed(state)
         onChange?(self.state)
-        commands.append(.init(request: request, state: state, token: token))
+        commands.append(.init(request: request, state: state, player: player, token: token))
         drainCommands()
     }
 
@@ -189,18 +166,14 @@ final class MusicProvider {
             while !Task.isCancelled, !self.commands.isEmpty {
                 let command = self.commands.removeFirst()
                 do {
-                    if command.state.player == .spotify {
-                        try await self.spotifyCommands.perform(command.request, state: command.state)
-                    } else {
-                        try await self.automation.perform(command.request, state: command.state)
-                    }
+                    try await self.playerCommands.perform(command.request, state: command.state)
                     guard !Task.isCancelled else { return }
-                    self.errors[command.state.player] = nil
+                    self.errors[command.player] = nil
                     self.confirmPendingCommands()
                 } catch {
                     self.lastCommandError = error.localizedDescription
                     self.feedback.reject(command.token)
-                    self.errors[command.state.player] = error.localizedDescription
+                    self.errors[command.player] = error.localizedDescription
                     self.state = self.confirmedState.map { self.feedback.displayed($0) }
                     self.onChange?(self.state)
                 }
@@ -238,7 +211,7 @@ final class MusicProvider {
         var candidates: [NowPlayingState] = []
         for player in MediaPlayer.allCases {
             guard NSRunningApplication.runningApplications(withBundleIdentifier: player.rawValue).contains(where: { !$0.isTerminated }) else { continue }
-            if !authorized.contains(player), await automation.permission(for: player, ask: false) { authorized.insert(player) }
+            if !authorized.contains(player), await permissions.permission(for: player, ask: false) { authorized.insert(player) }
             guard authorized.contains(player) else { continue }
             do {
                 if let sample = try await automation.read(player) {

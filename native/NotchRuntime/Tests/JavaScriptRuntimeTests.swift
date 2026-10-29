@@ -26,22 +26,16 @@ import NotchProtocol
     #expect(messages.contains { $0.contains("broken extension") })
 }
 
-@Test @MainActor func mediaStateIsValidatedAndLargeArtworkCanCrossTheBridge() throws {
+@Test @MainActor func largeOpaqueConnectionEventsCrossTheGenericBridge() throws {
     var messages: [String] = []
     let runtime = try JavaScriptRuntime(extensionID: "test.music") { messages.append($0) }
     defer { runtime.stop() }
-    try runtime.evaluate("globalThis.__notchnotchDispatch = (json) => __notchnotchSend(JSON.parse(json).state?.title ?? 'empty')")
-    var state = NowPlayingState(id: "track", eventID: "event", player: .spotify, title: "Music", artist: "Artist",
-                                artwork: "data:image/jpeg;base64," + String(repeating: "a", count: 24_000),
-                                duration: 204, position: 12, isPlaying: true)
-    func receive(_ state: NowPlayingState?) throws {
-        runtime.receive(String(decoding: try JSONEncoder().encode(MediaUpdate(state: state)), as: UTF8.self))
-    }
-    try receive(state)
-    #expect(messages == ["Music"])
-    state.artwork = "file:///private/data"
-    try receive(state)
+    try runtime.evaluate("globalThis.__notchnotchDispatch = (json) => __notchnotchSend(JSON.parse(json).message.artwork)")
+    let artwork = "data:image/jpeg;base64," + String(repeating: "a", count: 24_000)
+    let event = ConnectionEvent(connectionID: "player", sessionID: "session", event: "message", message: .object(["artwork": .string(artwork)]))
+    runtime.receive(String(decoding: try JSONEncoder().encode(event), as: UTF8.self))
+    #expect(messages == [artwork])
+    // The removed privileged media route is no longer delivered to extensions.
+    runtime.receive(#"{"protocolVersion":1,"type":"media","state":{"title":"ignored"}}"#)
     #expect(messages.count == 1)
-    try receive(nil)
-    #expect(messages.last == "empty")
 }

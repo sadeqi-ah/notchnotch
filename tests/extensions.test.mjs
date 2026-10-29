@@ -6,7 +6,10 @@ import path from "node:path";
 import { root } from "../scripts/build-extensions.mjs";
 
 function launch(name, id) {
-  const child = spawn(path.join(root, ".build/debug/ExtensionRunner"), [path.join(root, "dist/extensions", name, "bundle.js"), id]);
+  return launchProcess(path.join(root, ".build/debug/ExtensionRunner"), [path.join(root, "dist/extensions", name, "bundle.js"), id]);
+}
+function launchProcess(executable, args) {
+  const child = spawn(executable, args);
   const messages = [];
   const waiters = new Set();
   let stderr = "";
@@ -22,7 +25,7 @@ function launch(name, id) {
   return {
     child, messages,
     send(action, value) { child.stdin.write(JSON.stringify({ protocolVersion: 1, type: "event", action, value }) + "\n"); },
-    sendMedia(state) { child.stdin.write(JSON.stringify({ protocolVersion: 1, type: "media", state }) + "\n"); },
+    message(message) { child.stdin.write(JSON.stringify({ protocolVersion: 1, ...message }) + "\n"); },
     wait(predicate) { return this.waitMessage((message) => message.type === "snapshot" && predicate(message)); },
     waitMessage(predicate) {
       return new Promise((resolve, reject) => {
@@ -108,15 +111,30 @@ test("Unknown action identifiers do not execute extension callbacks", async () =
 });
 
 
-test("Music receives real wire updates, keeps event ids stable, and sends playback commands", async () => {
+test("Music connects through the generic SDK, receives state, and sends playback RPCs", async () => {
   const runner = launch("music", "dev.notchnotch.music");
-  const state = { id: "spotify:track:example", eventID: "playback-1", player: "com.spotify.client",
+  const state = { id: "spotify:track:example", eventID: "playback-1", player: "com.spotify.client", playerName: "Spotify",
     title: "Thisavros Mou", artist: "Katerina", album: "Thisavros Mou", duration: 204,
     position: 12, isPlaying: true, volume: 0.6, shuffle: false, repeating: false,
     updatedAt: Date.now() / 1000 };
+  const status = (state) => ({ state, authorized: ["com.spotify.client"], errors: {} });
+  function acknowledge(command) {
+    runner.message({ type: "connectionResponse", requestID: command.requestID, result: null });
+  }
+  function incoming(sessionID, message) {
+    runner.message({ type: "connectionEvent", connectionID: "player", sessionID, event: "message", message });
+  }
   try {
-    await runner.wait((message) => message.surfaces.length === 0);
-    runner.sendMedia(state);
+    const initial = await runner.wait((message) => message.surfaces[0]?.id === "now-playing");
+    assert.equal(initial.surfaces[0].phase, "paused");
+    assert.equal(runner.messages.some((message) => message.type === "connectionCommand"), false);
+    runner.send(action(initial.surfaces[0], "Connect music"));
+    const open = await runner.waitMessage((message) => message.type === "connectionCommand" && message.operation === "open");
+    assert.equal(open.connectionID, "player");
+    acknowledge(open);
+    const get = await runner.waitMessage((message) => message.message?.method === "music/getState");
+    acknowledge(get);
+    incoming(open.sessionID, { jsonrpc: "2.0", id: get.message.id, result: status(state) });
     const playing = await runner.wait((message) => message.surfaces[0]?.phase === "active");
     const surface = playing.surfaces[0];
     assert.equal(surface.idlePreview, true);
@@ -127,22 +145,54 @@ test("Music receives real wire updates, keeps event ids stable, and sends playba
     const player = nodes(surface.expanded).find((node) => node.type === "player");
     assert.equal(player.props.media.title, state.title);
     runner.send(player.props.action, JSON.stringify({ command: "seek", value: 0.5 }));
-    const command = await runner.waitMessage((message) => message.type === "mediaCommand");
+    const command = await runner.waitMessage((message) => message.message?.method === "music/command");
+    assert.equal(command.type, "connectionCommand");
     assert.equal(command.extensionID, "dev.notchnotch.music");
-    assert.deepEqual(command.request, { command: "seek", value: 0.5 });
-    runner.sendMedia({ ...state, position: 13 });
-    const tick = await runner.wait((message) => message.revision > playing.revision);
+    assert.deepEqual(command.message.params, { command: "seek", value: 0.5 });
+    acknowledge(command);
+    incoming(open.sessionID, { jsonrpc: "2.0", id: command.message.id, result: null });
+    incoming(open.sessionID, { jsonrpc: "2.0", method: "music/state", params: status({ ...state, position: 13 }) });
+    const tick = await runner.wait((message) => message.revision > playing.revision &&
+      nodes(message.surfaces[0].expanded).some((node) => node.props.media?.position === 13));
     assert.equal(tick.surfaces[0].peek.id, state.eventID);
-    runner.sendMedia({ ...state, isPlaying: false });
-    const paused = await runner.wait((message) => message.surfaces[0]?.phase === "paused");
+    incoming(open.sessionID, { method: "music/state", params: status({ ...state, isPlaying: false }) });
+    const paused = await runner.wait((message) => message.revision > tick.revision && message.surfaces[0]?.phase === "paused");
     assert.equal(paused.surfaces[0].compact.trailing[0].props.name, "pause.fill");
-    assert.equal(nodes(paused.surfaces[0].expanded).find((node) => node.type === "player").props.media.isPlaying, false);
-    // Album artwork can be larger than an ordinary 8 KiB UI event.
     const artwork = "data:image/jpeg;base64," + "a".repeat(24000);
-    runner.sendMedia({ ...state, artwork, eventID: "playback-2" });
+    incoming(open.sessionID, { method: "music/state", params: status({ ...state, artwork, eventID: "playback-2" }) });
     const art = await runner.wait((message) => message.surfaces[0]?.peek?.id === "playback-2");
     assert.equal(art.surfaces[0].compact.leading[0].props.source, artwork);
-    runner.sendMedia(null);
-    await runner.wait((message) => message.revision > art.revision && message.surfaces.length === 0);
+    incoming(open.sessionID, { method: "music/state", params: { ...status(state), commandError: "Player unavailable" } });
+    await runner.wait((message) => message.revision > art.revision &&
+      nodes(message.surfaces[0].expanded).some((node) => node.props.text === "Player unavailable"));
+    runner.message({ type: "connectionEvent", connectionID: "player", sessionID: open.sessionID, event: "closed" });
+    await runner.wait((message) => message.revision > art.revision &&
+      nodes(message.surfaces[0].expanded).some((node) => node.props.text === "Connect music"));
+    assert.equal(runner.messages.filter((message) => message.operation === "open").length, 1);
+    assert.equal(runner.messages.some((message) => message.type === "mediaCommand"), false);
+  } finally { await runner.stop(); }
+});
+
+test("The packaged music helper speaks bounded JSON-RPC and rejects unsupported actions", async () => {
+  const runner = launchProcess(path.join(root, "dist/extensions/music/helpers/MusicAdapter.app/Contents/MacOS/MusicAdapter"), []);
+  function request(id, method, params) {
+    runner.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  }
+  try {
+    request("state", "music/getState");
+    const initial = await runner.waitMessage((message) => message.id === "state");
+    assert.equal(initial.jsonrpc, "2.0");
+    assert.ok(Array.isArray(initial.result.authorized));
+    assert.equal(typeof initial.result.errors, "object");
+    request("unknown", "arbitraryScript", { script: "do something" });
+    const unknown = await runner.waitMessage((message) => message.id === "unknown");
+    assert.equal(unknown.error.code, -32601);
+    request("player", "music/connect", { player: "arbitrary.application" });
+    assert.equal((await runner.waitMessage((message) => message.id === "player")).error.code, -32602);
+    request("command", "music/command", { command: "runScript" });
+    assert.equal((await runner.waitMessage((message) => message.id === "command")).error.code, -32602);
+    request("final", "music/getState");
+    await runner.waitMessage((message) => message.id === "final");
+    assert.equal(runner.messages.filter((message) => message.id === "unknown").length, 1);
   } finally { await runner.stop(); }
 });

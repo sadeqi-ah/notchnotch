@@ -57,12 +57,12 @@ export interface RuntimeNotice {
   message: string;
 }
 
-export type MediaPlayer = "com.spotify.client" | "com.apple.Music";
 export type MediaCommand = "playPause" | "previous" | "next" | "seek" | "volume" | "shuffle" | "repeat" | "openPlayer";
 export interface NowPlayingState {
   id: string;
   eventID: string;
-  player: MediaPlayer;
+  player: string;
+  playerName?: string;
   title: string;
   artist: string;
   album: string;
@@ -75,9 +75,40 @@ export interface NowPlayingState {
   repeating: boolean;
   updatedAt: number;
 }
-export interface MediaUpdate {
-  protocolVersion: 1;
-  type: "media";
-  state?: NowPlayingState | null;
-}
 export interface MediaRequest { command: MediaCommand; value?: number }
+
+export type JSONValue = null | boolean | number | string | JSONValue[] | { [key: string]: JSONValue };
+export interface ConnectionHTTPRequest {
+  path: string;
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+}
+export interface ConnectionCommand {
+  protocolVersion: 1;
+  type: "connectionCommand";
+  extensionID: string;
+  requestID: string;
+  connectionID: string;
+  operation: "request" | "open" | "send" | "close";
+  sessionID?: string;
+  request?: ConnectionHTTPRequest;
+  message?: JSONValue;
+}
+export interface ConnectionResponse {
+  protocolVersion: 1;
+  type: "connectionResponse";
+  requestID: string;
+  result?: JSONValue;
+  error?: string;
+}
+export interface ConnectionEvent {
+  protocolVersion: 1;
+  type: "connectionEvent";
+  connectionID: string;
+  sessionID: string;
+  event: "message" | "closed";
+  message?: JSONValue;
+  error?: string;
+}

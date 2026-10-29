@@ -1,11 +1,5 @@
 import Foundation
 
-public enum MediaPlayer: String, Codable, Sendable, CaseIterable {
-    case spotify = "com.spotify.client"
-    case music = "com.apple.Music"
-    public var name: String { self == .spotify ? "Spotify" : "Apple Music" }
-}
-
 public enum MediaCommand: String, Codable, Sendable {
     case playPause, previous, next, seek, volume, shuffle, repeatMode = "repeat", openPlayer
 }
@@ -13,7 +7,8 @@ public enum MediaCommand: String, Codable, Sendable {
 public struct NowPlayingState: Codable, Equatable, Sendable {
     public var id: String
     public var eventID: String
-    public var player: MediaPlayer
+    public var player: String
+    public var playerName: String?
     public var title: String
     public var artist: String
     public var album: String
@@ -26,18 +21,19 @@ public struct NowPlayingState: Codable, Equatable, Sendable {
     public var repeating: Bool
     public var updatedAt: Double
 
-    public init(id: String, eventID: String, player: MediaPlayer, title: String, artist: String,
+    public init(id: String, eventID: String, player: String, playerName: String? = nil, title: String, artist: String,
                 album: String = "", artwork: String? = nil, duration: Double, position: Double,
                 isPlaying: Bool, volume: Double = 1, shuffle: Bool = false, repeating: Bool = false,
                 updatedAt: Double = Date.now.timeIntervalSince1970) {
         self.id = id; self.eventID = eventID; self.player = player; self.title = title; self.artist = artist
-        self.album = album; self.artwork = artwork; self.duration = duration; self.position = position
+        self.playerName = playerName; self.album = album; self.artwork = artwork; self.duration = duration; self.position = position
         self.isPlaying = isPlaying; self.volume = volume; self.shuffle = shuffle; self.repeating = repeating
         self.updatedAt = updatedAt
     }
 
     public func validate() throws {
         guard !id.isEmpty, id.count <= 512, !eventID.isEmpty, eventID.count <= 128,
+              !player.isEmpty, player.count <= 128, (playerName?.count ?? 0) <= 128,
               !title.isEmpty, title.count <= 256, artist.count <= 256, album.count <= 256,
               duration.isFinite, (0...604_800).contains(duration),
               position.isFinite, (0...604_800).contains(position),
@@ -57,13 +53,6 @@ public struct NowPlayingState: Codable, Equatable, Sendable {
     }
 }
 
-public struct MediaUpdate: Codable, Sendable {
-    public var protocolVersion = 1
-    public var type = "media"
-    public var state: NowPlayingState?
-    public init(state: NowPlayingState?) { self.state = state }
-}
-
 public struct MediaRequest: Codable, Sendable {
     public var command: MediaCommand
     public var value: Double?
@@ -75,11 +64,4 @@ public struct MediaRequest: Codable, Sendable {
             }
         } else if value != nil { throw ProtocolError.invalid("This media command takes no value") }
     }
-}
-
-public struct MediaCommandMessage: Codable, Sendable {
-    public var protocolVersion: Int
-    public var type: String
-    public var extensionID: String
-    public var request: MediaRequest
 }
