@@ -3,6 +3,8 @@ import type { MediaRequest, NowPlayingState, TextSize, Tone } from "@notchnotch/
 export * from "./connections";
 
 type Children = { children?: ReactNode };
+/** Extension-owned setup UI displayed in the management window, outside the notch. */
+export function Settings({ children }: Children) { return createElement("settings", null, children); }
 type SurfaceProps = Children & {
   id: string;
   title: string;

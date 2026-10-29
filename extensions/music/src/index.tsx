@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, Artwork, Button, ConnectionStream, JSONRPCClient, MusicPlayer,
-  Row, Symbol, Text, Waveform,
+  Row, Settings, Symbol, Text, Waveform,
 } from "@notchnotch/sdk";
 import type { JSONValue, MediaRequest, NowPlayingState } from "@notchnotch/protocol";
 import { start } from "@notchnotch/runtime";
@@ -25,7 +25,7 @@ function Music() {
   const connecting = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [settings, setSettings] = useState(false);
+  const [playbackError, setPlaybackError] = useState("");
 
   useEffect(() => {
     const stopNotifications = rpc.onNotification(({ method, params }) => {
@@ -65,28 +65,36 @@ function Music() {
 
   function command(request: MediaRequest) {
     if (!active.current) return;
-    setError("");
-    void rpc.request("music/command", request as unknown as JSONValue).catch((failure: unknown) => setError(String(failure)));
+    setPlaybackError("");
+    void rpc.request("music/command", request as unknown as JSONValue).catch((failure: unknown) => setPlaybackError(String(failure)));
   }
 
   const state = connected ? status?.state : null;
   const problem = (error || status?.commandError || Object.values(status?.errors ?? {})[0] || "").slice(0, 1024);
-  return <Activity idlePreview id="now-playing" title={state?.title.slice(0, 128) ?? "Music"}
-    phase={state?.isPlaying ? "active" : "paused"}>
-    <Activity.Compact leading={state ? <Artwork source={state.artwork} /> : <Symbol name="music.note" />}
-      trailing={state?.isPlaying ? <Waveform playing source={state.artwork} /> : <Symbol name="pause.fill" tone="secondary" />} />
-    {state ? <Activity.Peek id={state.eventID}
-      text={(state.artist ? `${state.artist} • ${state.title}` : state.title).slice(0, 256)} /> : null}
-    <Activity.Expanded>
-      {state ? <MusicPlayer state={state} onCommand={command} /> : <>
-        <Text>{connected ? "Nothing playing." : "Connect music to show and control playback."}</Text>
-        {!connected ? <Button title={busy ? "Connecting…" : "Connect music"} disabled={busy} onPress={() => { void connect(); }} /> : null}
-      </>}
+  return <>
+    <Settings>
+      <Text tone="secondary">Connect a player to show its playback and controls in the notch.</Text>
+      <Row>{players.map((player, index) => <Button key={player.id}
+        title={`${status?.authorized.includes(player.id) ? "Reconnect" : "Connect"} ${player.name}`}
+        tone={index === 0 ? "accent" : "secondary"} disabled={busy}
+        onPress={() => { void connect(player.id); }} />)}</Row>
+      {busy ? <Text tone="secondary">Waiting for player access…</Text> : null}
+      {players.filter((player) => status?.authorized.includes(player.id)).map((player) =>
+        <Text key={player.id} tone="secondary">{`${player.name} access granted`}</Text>)}
+      {connected && !state ? <Text tone="secondary">Play a track in a connected player to see it in the notch.</Text> : null}
       {problem ? <Text tone="warning">{problem}</Text> : null}
-      {state ? <Button title={settings ? "Done" : "Players"} onPress={() => setSettings(!settings)} /> : null}
-      {!state || settings ? <Row>{players.map((player) => <Button key={player.id}
-        title={`Connect ${player.name}`} disabled={busy} onPress={() => { void connect(player.id); }} />)}</Row> : null}
-    </Activity.Expanded>
-  </Activity>;
+    </Settings>
+    {state ? <Activity idlePreview id="now-playing" title={state.title.slice(0, 128)}
+      phase={state.isPlaying ? "active" : "paused"}>
+      <Activity.Compact leading={<Artwork source={state.artwork} />}
+        trailing={state.isPlaying ? <Waveform playing source={state.artwork} /> : <Symbol name="pause.fill" tone="secondary" />} />
+      <Activity.Peek id={state.eventID}
+        text={(state.artist ? `${state.artist} • ${state.title}` : state.title).slice(0, 256)} />
+      <Activity.Expanded>
+        <MusicPlayer state={state} onCommand={command} />
+        {playbackError || status?.commandError ? <Text tone="warning">{(playbackError || status?.commandError || "").slice(0, 1024)}</Text> : null}
+      </Activity.Expanded>
+    </Activity> : null}
+  </>;
 }
 start(<Music />);

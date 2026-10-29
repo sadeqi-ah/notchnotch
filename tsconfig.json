@@ -18,5 +18,5 @@
       "@notchnotch/react-renderer": ["packages/react-renderer/src/index.ts"]
     }
   },
-  "include": ["packages/**/*.ts", "packages/**/*.tsx", "extensions/**/*.tsx"]
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "extensions/**/*.tsx", "tests/fixtures/**/*.tsx"]
 }

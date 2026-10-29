@@ -132,6 +132,9 @@ test("an RPC timeout can be recovered by closing the old helper session and reco
 test("manifest validation rejects remote endpoints, undeclared powers and executable traversal", () => {
   const base = { id: "dev.test.plugin", name: "Test", version: "1", apiVersion: 1, entry: "bundle.js", permissions: ["local-network"] };
   validateManifest({ ...base, connections: { local: { transport: "http", endpoint: "http://127.0.0.1:4242" } } });
+  for (const [key, value] of Object.entries({ name: "x".repeat(129), version: "v".repeat(65), icon: "x".repeat(129), description: "x".repeat(513) })) {
+    assert.throws(() => validateManifest({ ...base, [key]: value }));
+  }
   for (const endpoint of ["http://example.com:4242", "http://localhost:4242", "http://2130706433:4242", "http://127.0.0.1:4242/private"]) {
     assert.throws(() => validateManifest({ ...base, connections: { local: { transport: "http", endpoint } } }));
   }

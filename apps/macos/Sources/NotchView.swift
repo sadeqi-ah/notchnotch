@@ -63,6 +63,8 @@ struct NotchView: View {
             ForEach(model.platform.surfaces) { item in
                 Button(item.surface.title) { onInteraction(); model.open(item.key) }
             }
+            Divider()
+            Button("Settings & Extensions…") { model.onOpenManagement?() }
         }
         .animation(shellAnimation, value: model.presentation)
         .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.92), value: geometry.fittedContentHeight)
@@ -168,6 +170,21 @@ struct NotchView: View {
         }
         .frame(width: geometry.expandedWidth)
         .fixedSize(horizontal: false, vertical: true)
+        .overlay(alignment: .top) {
+            // Shared chrome stays in the right camera wing while page content
+            // transitions beneath it, including the headerless music player.
+            HStack(spacing: 0) {
+                Spacer()
+                Button("Open Settings & Extensions", systemImage: "gearshape") { model.onOpenManagement?() }
+                    .labelStyle(.iconOnly).font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .frame(width: 24, height: 24).contentShape(Rectangle())
+                    .buttonStyle(.plain).help("Settings & Extensions")
+            }
+            .environment(\.layoutDirection, .leftToRight)
+            .padding(.horizontal, 24)
+            .frame(height: model.topHeight + 8)
+        }
         .onChange(of: pageKey, initial: true) { _, _ in model.selectContent() }
     }
 
@@ -196,8 +213,10 @@ struct NotchView: View {
                         Text("No activities.").font(.system(size: 17, weight: .semibold))
                         Text("Your notch stays out of the way until an activity starts.")
                             .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Button("Open Settings & Extensions") { model.onOpenManagement?() }
+                            .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
                         if !model.errors.isEmpty {
-                            Button("Restart demos") { model.reloadExtensions(force: true) }.buttonStyle(.plain)
+                            Button("Restart extensions") { model.reloadExtensions(force: true) }.buttonStyle(.plain)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -225,6 +244,8 @@ struct NotchView: View {
                         Label(item.surface.title, systemImage: item.surface.kind == .prompt ? "bubble.left" : "circle")
                     }
                 }
+                Divider()
+                Button("Settings & Extensions…") { model.onOpenManagement?() }
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.45)).frame(width: 30, height: 24)
@@ -246,6 +267,7 @@ struct NotchView: View {
                     .foregroundStyle(.white.opacity(0.4)).frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("Collapse panel")
+            Color.clear.frame(width: 24, height: 24).accessibilityHidden(true)
         }
         .padding(.horizontal, 24)
     }

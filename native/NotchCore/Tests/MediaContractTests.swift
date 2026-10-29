@@ -36,3 +36,15 @@ import NotchProtocol
         }
     }
 }
+
+@Test func manifestPresentationMetadataCannotOverflowTheManagementWindow() throws {
+    let json = #"{"id":"dev.example.extension","name":"Example","version":"1","apiVersion":1,"entry":"bundle.js","permissions":[],"icon":"music.note","description":"Example extension"}"#
+    try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8)).validate()
+    for (key, value) in ["name": String(repeating: "n", count: 129), "version": String(repeating: "v", count: 65),
+                         "icon": String(repeating: "i", count: 129), "description": String(repeating: "d", count: 513)] {
+        var object = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        object[key] = value
+        let data = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: ProtocolError.self) { try JSONDecoder().decode(ExtensionManifest.self, from: data).validate() }
+    }
+}

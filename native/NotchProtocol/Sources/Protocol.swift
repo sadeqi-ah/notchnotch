@@ -81,9 +81,11 @@ public struct Snapshot: Codable, Sendable {
     public var extensionID: String
     public var revision: Int
     public var surfaces: [Surface]
-    public init(extensionID: String, revision: Int, surfaces: [Surface]) {
+    public var settings: UINode?
+    public init(extensionID: String, revision: Int, surfaces: [Surface], settings: UINode? = nil) {
         self.protocolVersion = 1; self.type = "snapshot"; self.extensionID = extensionID
         self.revision = revision; self.surfaces = surfaces
+        self.settings = settings
     }
 
     public func validate(expectedExtensionID: String) throws {
@@ -93,7 +95,7 @@ public struct Snapshot: Codable, Sendable {
         }
         var count = 0
         var identifiers = Set<String>()
-        func visit(_ node: UINode, depth: Int, compact: Bool = false) throws {
+        func visit(_ node: UINode, depth: Int, compact: Bool = false, settings: Bool = false) throws {
             count += 1
             guard depth <= 16, count <= 512, !node.id.isEmpty, node.id.count <= 128,
                   identifiers.insert(node.id).inserted,
@@ -103,6 +105,9 @@ public struct Snapshot: Codable, Sendable {
             }
             if compact && (node.type == .button || node.type == .textField || node.type == .player) {
                 throw ProtocolError.invalid("Compact content cannot contain interactive controls")
+            }
+            if settings && ![NodeKind.column, .row, .text, .symbol, .progress, .button, .textField].contains(node.type) {
+                throw ProtocolError.invalid("Settings support layout, text, symbols, progress, buttons and text fields")
             }
             if let source = node.props.source, !NowPlayingState.isArtworkSource(source) {
                 throw ProtocolError.invalid("Artwork must use an approved artwork CDN or bounded image data")
@@ -114,7 +119,7 @@ public struct Snapshot: Codable, Sendable {
             if let value = node.props.value, !value.isFinite || !(0...1).contains(value) {
                 throw ProtocolError.invalid("Progress must be between zero and one")
             }
-            for child in node.children { try visit(child, depth: depth + 1, compact: compact) }
+            for child in node.children { try visit(child, depth: depth + 1, compact: compact, settings: settings) }
         }
         for surface in surfaces {
             guard !surface.id.isEmpty, surface.id.count <= 128, !surface.title.isEmpty, surface.title.count <= 128,
@@ -137,6 +142,7 @@ public struct Snapshot: Codable, Sendable {
                 try visit(node, depth: 0, compact: true)
             }
         }
+        if let settings { try visit(settings, depth: 0, settings: true) }
     }
 }
 
@@ -158,7 +164,7 @@ public struct RuntimeNotice: Codable, Sendable {
     }
 }
 
-public struct ExtensionManifest: Codable, Sendable {
+public struct ExtensionManifest: Codable, Equatable, Sendable {
     public var id: String
     public var name: String
     public var version: String
@@ -166,10 +172,14 @@ public struct ExtensionManifest: Codable, Sendable {
     public var entry: String
     public var permissions: [String]
     public var connections: [String: ConnectionDefinition]?
+    public var icon: String?
+    public var description: String?
     public func validate() throws {
         guard id.range(of: "^[a-z][a-z0-9.-]{2,79}$", options: .regularExpression) != nil,
-              !name.isEmpty, apiVersion == 1, entry == "bundle.js", Set(permissions).count == permissions.count,
+              !name.isEmpty, name.count <= 128, !version.isEmpty, version.count <= 64,
+              apiVersion == 1, entry == "bundle.js", Set(permissions).count == permissions.count,
               permissions.allSatisfy({ ["local-network", "process"].contains($0) }),
+              (icon?.count ?? 0) <= 128, (description?.count ?? 0) <= 512,
               (connections?.count ?? 0) <= 8 else {
             throw ProtocolError.invalid("Invalid API v1 extension manifest or permissions")
         }

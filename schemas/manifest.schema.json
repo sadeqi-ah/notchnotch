@@ -17,10 +17,13 @@
     },
     "name": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128
     },
     "version": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
     },
     "apiVersion": {
       "const": 1
@@ -48,6 +51,14 @@
       "additionalProperties": {
         "$ref": "#/$defs/connection"
       }
+    },
+    "icon": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 512
     }
   },
   "additionalProperties": false,

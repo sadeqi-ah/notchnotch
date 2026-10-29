@@ -1,9 +1,33 @@
-import { test } from "node:test";
+import { after, before, test } from "node:test";
+import { build } from "esbuild";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import { root } from "../scripts/build-extensions.mjs";
+
+// Exercise the runtime without shipping test activities as installed extensions.
+let fixtureDirectory;
+before(async () => {
+  fixtureDirectory = await mkdtemp(path.join(tmpdir(), "notchnotch-runtime-"));
+  await build({
+    absWorkingDir: root,
+    entryPoints: ["tests/fixtures/runtime.tsx"],
+    outfile: path.join(fixtureDirectory, "bundle.js"),
+    bundle: true, format: "iife", platform: "neutral", target: "es2022",
+    mainFields: ["module", "main"], conditions: ["default"], jsx: "automatic",
+    define: { "process.env.NODE_ENV": '"production"' },
+  });
+});
+after(async () => {
+  if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true });
+});
+function launchFixture() {
+  return launchProcess(path.join(root, ".build/debug/ExtensionRunner"),
+    [path.join(fixtureDirectory, "bundle.js"), "test.runtime"]);
+}
 
 function launch(name, id) {
   return launchProcess(path.join(root, ".build/debug/ExtensionRunner"), [path.join(root, "dist/extensions", name, "bundle.js"), id]);
@@ -57,33 +81,33 @@ function action(surface, title) {
 }
 
 test("React timer runs inside JavaScriptCore and round-trips actions across the process boundary", async () => {
-  const runner = launch("timer", "dev.notchnotch.timer");
+  const runner = launchFixture();
   try {
     const initial = await runner.wait((message) => message.surfaces[0]?.phase === "paused");
     assert.equal(initial.protocolVersion, 1);
-    assert.equal(initial.extensionID, "dev.notchnotch.timer");
-    assert.equal(initial.surfaces[0].compact.trailing[0].props.text, "05:00");
+    assert.equal(initial.extensionID, "test.runtime");
+    assert.equal(initial.surfaces[0].compact.trailing[0].props.text, "5");
     assert.deepEqual(initial.surfaces[0].peek, {
-      id: "ready", text: "Focus timer • Ready when you are", duration: 4,
+      id: "ready", text: "Runtime ready", duration: 4,
     });
-    runner.send(action(initial.surfaces[0], "Start focus"));
+    runner.send(action(initial.surfaces[0], "Start"));
     const running = await runner.wait((message) => message.surfaces[0]?.phase === "active");
-    const ticked = await runner.wait((message) => message.revision > running.revision && message.surfaces[0]?.compact.trailing[0].props.text !== "05:00");
+    const ticked = await runner.wait((message) => message.revision > running.revision && message.surfaces[0]?.compact.trailing[0].props.text !== "5");
     // Live progress retains the event id, so the host's deadline stays fixed.
     assert.deepEqual(ticked.surfaces[0].peek, initial.surfaces[0].peek);
     runner.send(action(ticked.surfaces[0], "Pause"));
     const paused = await runner.wait((message) => message.revision > ticked.revision && message.surfaces[0]?.phase === "paused");
     runner.send(action(paused.surfaces[0], "Reset"));
-    const reset = await runner.wait((message) => message.revision > paused.revision && message.surfaces[0]?.compact.trailing[0].props.text === "05:00");
+    const reset = await runner.wait((message) => message.revision > paused.revision && message.surfaces[0]?.compact.trailing[0].props.text === "5");
     assert.equal(reset.surfaces[0].phase, "paused");
   } finally { await runner.stop(); }
 });
 
 test("An expanded-only prompt accepts text and resolves without removing the activity", async () => {
-  const runner = launch("prompt-demo", "dev.notchnotch.prompt-demo");
+  const runner = launchFixture();
   try {
     const initial = await runner.wait((message) => message.surfaces.length === 1);
-    runner.send(action(initial.surfaces[0], "Try a prompt"));
+    runner.send(action(initial.surfaces[0], "Ask"));
     const question = await runner.wait((message) => message.surfaces.some((surface) => surface.kind === "prompt"));
     const prompt = question.surfaces.find((surface) => surface.kind === "prompt");
     assert.equal(prompt.initialView, "expanded");
@@ -92,19 +116,19 @@ test("An expanded-only prompt accepts text and resolves without removing the act
     runner.send(input.props.action, "Building NotchNotch");
     const typed = await runner.wait((message) => message.revision > question.revision && message.surfaces.some((surface) =>
       nodes(surface.expanded).some((node) => node.type === "textField" && node.props.text === "Building NotchNotch")));
-    runner.send(action(typed.surfaces.find((surface) => surface.kind === "prompt"), "Save name"));
+    runner.send(action(typed.surfaces.find((surface) => surface.kind === "prompt"), "Save"));
     const resolved = await runner.wait((message) => message.revision > typed.revision && message.surfaces.length === 1);
-    assert.ok(nodes(resolved.surfaces[0].expanded).some((node) => node.props.text === "Session named “Building NotchNotch”."));
+    assert.ok(nodes(resolved.surfaces[0].expanded).some((node) => node.props.text === "Building NotchNotch"));
     assert.equal(resolved.surfaces[0].kind, "activity");
   } finally { await runner.stop(); }
 });
 
 test("Unknown action identifiers do not execute extension callbacks", async () => {
-  const runner = launch("timer", "dev.notchnotch.timer");
+  const runner = launchFixture();
   try {
     const initial = await runner.wait((message) => message.surfaces.length === 1);
     runner.send("not-an-action");
-    runner.send(action(initial.surfaces[0], "Start focus"));
+    runner.send(action(initial.surfaces[0], "Start"));
     const running = await runner.wait((message) => message.surfaces[0]?.phase === "active");
     assert.equal(running.revision, initial.revision + 1);
   } finally { await runner.stop(); }
@@ -125,16 +149,21 @@ test("Music connects through the generic SDK, receives state, and sends playback
     runner.message({ type: "connectionEvent", connectionID: "player", sessionID, event: "message", message });
   }
   try {
-    const initial = await runner.wait((message) => message.surfaces[0]?.id === "now-playing");
-    assert.equal(initial.surfaces[0].phase, "paused");
+    const initial = await runner.wait((message) => !!message.settings);
+    assert.deepEqual(initial.surfaces, []);
+    assert.ok(nodes(initial.settings).some((node) => node.props.text === "Connect Spotify"));
     assert.equal(runner.messages.some((message) => message.type === "connectionCommand"), false);
-    runner.send(action(initial.surfaces[0], "Connect music"));
+    runner.send(action({ expanded: initial.settings }, "Connect Spotify"));
     const open = await runner.waitMessage((message) => message.type === "connectionCommand" && message.operation === "open");
     assert.equal(open.connectionID, "player");
     acknowledge(open);
     const get = await runner.waitMessage((message) => message.message?.method === "music/getState");
     acknowledge(get);
     incoming(open.sessionID, { jsonrpc: "2.0", id: get.message.id, result: status(state) });
+    const connect = await runner.waitMessage((message) => message.message?.method === "music/connect");
+    assert.deepEqual(connect.message.params, { player: "com.spotify.client" });
+    acknowledge(connect);
+    incoming(open.sessionID, { jsonrpc: "2.0", id: connect.message.id, result: status(state) });
     const playing = await runner.wait((message) => message.surfaces[0]?.phase === "active");
     const surface = playing.surfaces[0];
     assert.equal(surface.idlePreview, true);
@@ -144,6 +173,8 @@ test("Music connects through the generic SDK, receives state, and sends playback
     assert.equal(surface.peek.text, "Katerina • Thisavros Mou");
     const player = nodes(surface.expanded).find((node) => node.type === "player");
     assert.equal(player.props.media.title, state.title);
+    assert.equal(nodes(surface.expanded).some((node) => /Connect|Players/.test(node.props.text ?? "")), false);
+    assert.ok(nodes(playing.settings).some((node) => node.props.text === "Connect Apple Music"));
     runner.send(player.props.action, JSON.stringify({ command: "seek", value: 0.5 }));
     const command = await runner.waitMessage((message) => message.message?.method === "music/command");
     assert.equal(command.type, "connectionCommand");
@@ -167,7 +198,7 @@ test("Music connects through the generic SDK, receives state, and sends playback
       nodes(message.surfaces[0].expanded).some((node) => node.props.text === "Player unavailable"));
     runner.message({ type: "connectionEvent", connectionID: "player", sessionID: open.sessionID, event: "closed" });
     await runner.wait((message) => message.revision > art.revision &&
-      nodes(message.surfaces[0].expanded).some((node) => node.props.text === "Connect music"));
+      message.surfaces.length === 0 && nodes(message.settings).some((node) => node.props.text === "Connect Spotify"));
     assert.equal(runner.messages.filter((message) => message.operation === "open").length, 1);
     assert.equal(runner.messages.some((message) => message.type === "mediaCommand"), false);
   } finally { await runner.stop(); }

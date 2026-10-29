@@ -4,12 +4,16 @@
   "version": "0.1.0",
   "apiVersion": 1,
   "entry": "bundle.js",
-  "permissions": ["process"],
+  "permissions": [
+    "process"
+  ],
   "connections": {
     "player": {
       "transport": "stdio",
       "executable": "./helpers/MusicAdapter.app/Contents/MacOS/MusicAdapter",
       "arguments": []
     }
-  }
+  },
+  "icon": "music.note",
+  "description": "Your music, a glance away. Playback controls for Spotify and Apple Music."
 }

@@ -43,6 +43,7 @@ export interface Snapshot {
   extensionID: string;
   revision: number;
   surfaces: Surface[];
+  settings?: UINode;
 }
 export interface UserEvent {
   protocolVersion: 1;

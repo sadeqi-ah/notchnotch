@@ -4,8 +4,8 @@ An extension consists of `notchnotch.json` and `src/index.tsx`. `pnpm build:exte
 
 ```json
 {
-  "id": "dev.example.timer",
-  "name": "My timer",
+  "id": "dev.example.counter",
+  "name": "My counter",
   "version": "0.1.0",
   "apiVersion": 1,
   "entry": "bundle.js",
@@ -60,7 +60,7 @@ The host supports three presentations: compact, peek, and expanded. A peek keeps
 
 Place this beside `Activity.Compact` and `Activity.Expanded`. Change the id for each new playback event, including replaying the same track. Keep it stable for progress ticks and metadata updates: ordinary renders neither restart the deadline nor replay a dismissed announcement. A new event replaces an existing peek and starts a fresh deadline. Events received while a full panel or hover preview is open are consumed silently; incoming expanded prompts take priority. After dismissal, the announced activity remains selected in compact mode. Removing the Peek, surface, or extension cancels its active announcement.
 
-The timer demo requests readiness/completion announcements; paused surfaces do not automatically claim the notch. Completion announces automatically, and readiness can be previewed manually. Use **Preview announcement** in the menu bar to replay its current announcement.
+Paused surfaces do not automatically claim the notch. Completion announces automatically when an activity supplies a new peek event. Use **Preview announcement** in the menu bar to replay the selected activity’s current announcement.
 
 ## Components
 
@@ -104,4 +104,32 @@ These `music/*` methods are the bundled extension's protocol, not host APIs. See
 
 The resting notch remains hidden for paused extensions. On hover, the host reveals the current compact activity first, then a pending question, then the most recently used activity, then an extension-declared resumable fallback. Opening an activity or a genuine phase transition records recency; routine metadata/progress updates do not reorder it. Click and long hover open the same chosen surface. If no contextual surface exists, neutral hub icons open the activity hub instead.
 
-An `Activity` may set `idlePreview` to opt into the resumable fallback; it must have `Activity.Compact`. This requests hover visibility only and never claims the resting notch. The music extension opts in, so users can reveal its connection setup or resume a paused song. Newly installed, unused timer/question launchers do not take priority merely because they are installed. Recency is local to the running host session and is cleared when a surface or extension disappears.
+An `Activity` may set `idlePreview` to opt into the resumable fallback; it must have `Activity.Compact`. This requests hover visibility only and never claims the resting notch. The music extension opts in only while it has a track, so users can resume a paused song. Its connection setup stays in the management window. Newly installed activities do not take priority merely because they are installed. Recency is local to the running host session and is cleared when a surface or extension disappears.
+
+## Installing a local extension
+
+Build a folder containing `notchnotch.json`, `bundle.js`, and any bundled helper/assets. Open **Settings & Extensions… → Install from Folder…** and select that built folder. The manager validates it and shows a review before copying it into the user's extension library. Keep a stable manifest id for updates, and use an id distinct from the included examples. Installed ids cannot shadow included extensions. Package limits are 512 files/folders, no symbolic links, 8 MiB for `bundle.js` and 64 MiB total. Development `build.mjs` files are never executed by the installer.
+
+This preview supports explicitly trusted local packages. Installing native code is a trust decision; transport session consent does not sandbox a helper. A public marketplace and generic persistent extension-preference storage are not yet implemented. Use the manager for enable/disable, restart, connection access review and disconnect actions; setup controls use the extension’s `Settings` panel; live activity controls remain in the notch.
+
+## Extension-owned setup in the management window
+
+Render a single root-level `Settings` component alongside `Activity`/`Prompt` components. Its children appear under **Extensions → Your extension → Setup**, even when the extension has no notch surfaces. Buttons and fields use the same runner, React state and action registry as the activity. Settings actions never pin/open the notch. Use this panel for connection, onboarding and configuration controls.
+
+```tsx
+import { Settings, Button, Text } from "@notchnotch/sdk";
+
+return <>
+  <Settings>
+    <Text>Connect your app to start receiving updates.</Text>
+    <Button title="Connect" onPress={connect} />
+  </Settings>
+  {currentActivity ? <YourActivity state={currentActivity} /> : null}
+</>;
+```
+
+Settings supports `Column`, `Row`, `Text`, `Symbol`, `Progress`, `Button` and `TextField`. The host renders native window controls using system colors. Settings and notch nodes share the 512-node/16-depth snapshot budget and must have unique node ids. Omit Settings to clear the panel. Disabling, removing or crashing an extension clears its setup UI and action handlers; restarting reconstructs it. Local React state lasts for the runner session. Media and artwork components belong to the notch activity. Closing the management window leaves the runner and its connections alive.
+
+### Library identity
+
+A manifest can include `icon` (an SF Symbol name, at most 128 characters) and `description` (at most 512 characters). These appear in the management sidebar, overview, extension page and install review. Omit them to use the generic extension identity. `name` must contain 1–128 characters, and `version` 1–64. The extension enable switch controls whether its runner is allowed to run; it does not imply that a local app has connected. Keep connection state and recovery controls in `Settings`.

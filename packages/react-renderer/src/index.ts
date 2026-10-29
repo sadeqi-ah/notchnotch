@@ -113,7 +113,7 @@ export function createRenderer(extensionID: string, send: (snapshot: Snapshot) =
     };
   }
   function surface(node: Instance, registry: typeof actions): Surface {
-    if (node.type !== "activity" && node.type !== "prompt") throw new Error("An extension root must contain Activity or Prompt components");
+    if (node.type !== "activity" && node.type !== "prompt") throw new Error("An extension root must contain Activity, Prompt or Settings components");
     if (typeof node.props.id !== "string" || typeof node.props.title !== "string") throw new Error("A surface requires a string id and title");
     if (node.children.filter((child) => child.type === "expanded").length !== 1 ||
         node.children.filter((child) => child.type === "compact").length > 1 ||
@@ -153,9 +153,15 @@ export function createRenderer(extensionID: string, send: (snapshot: Snapshot) =
     commit() {
       try {
         const registry = new Map<string, (value?: string) => void>();
-        const surfaces = container.children.map((node) => surface(node, registry));
+        const panels = container.children.filter((node) => node.type === "settings");
+        if (panels.length > 1) throw new Error("An extension may expose only one Settings panel");
+        const panel = panels[0];
+        const settings: UINode | undefined = panel ? {
+          id: panel.id, type: "column", props: {}, children: panel.children.map((node) => serialize(node, registry)),
+        } : undefined;
+        const surfaces = container.children.filter((node) => node.type !== "settings").map((node) => surface(node, registry));
         actions = registry;
-        send({ protocolVersion: 1, type: "snapshot", extensionID, revision: ++revision, surfaces });
+        send({ protocolVersion: 1, type: "snapshot", extensionID, revision: ++revision, surfaces, ...(settings ? { settings } : {}) });
       } catch (error) { reportError(error); }
     },
   };

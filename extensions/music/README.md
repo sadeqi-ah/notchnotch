@@ -1,8 +1,8 @@
 # Music extension
 
-The React activity connects to its own native adapter using only `ConnectionStream` and `JSONRPCClient`. The host contains no Spotify/Apple Music discovery or control code. `MusicPlayer`, `Artwork`, `Waveform` and the playback data types remain shared UI components.
+The React extension renders setup through the SDK’s root-level `Settings` panel and connects to its own native adapter using only `ConnectionStream` and `JSONRPCClient`. The host contains no Spotify/Apple Music discovery or control code. `MusicPlayer`, `Artwork`, `Waveform` and the playback data types remain shared UI components.
 
-Open Music and choose **Connect music** to start the helper after session consent. It reads playback from players whose Automation permission is already granted. **Connect Spotify** and **Connect Apple Music** request macOS permission explicitly; during playback, open **Players** to reach these controls. A disconnected helper requires an explicit reconnect. Nothing launches a player just to discover a track.
+Open **Settings & Extensions… → Extensions → Music → Setup** and choose **Connect Spotify** or **Connect Apple Music** to start the helper after session consent. It reads playback from players whose Automation permission is already granted. **Connect Spotify** and **Connect Apple Music** request macOS permission explicitly; these setup controls stay in the management window during playback. A disconnected helper requires an explicit reconnect. Nothing launches a player just to discover a track.
 
 `build.mjs` compiles `helper-src` as the separate `MusicAdapter` target, packages its executable and Automation description into `helpers/MusicAdapter.app`, and signs that bundle for local development. Run `node scripts/build-extensions.mjs` from the repository root. Restart development after changing helper Swift sources. A packaged extension includes its compiled helper; the host needs neither the sources nor a compiler at runtime. The SwiftPM target reuses the shared UI data/feedback libraries, and has no dependency on the host application target.
 

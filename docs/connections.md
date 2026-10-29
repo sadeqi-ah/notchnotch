@@ -40,7 +40,7 @@ The routes and event shapes here are an example contract for Zeytun to implement
 
 ```tsx
 import { useEffect, useState } from "react";
-import { Activity, Button, ConnectionStream, Prompt, Symbol, Text, localHTTP } from "@notchnotch/sdk";
+import { Button, ConnectionStream, Prompt, Settings, Text, localHTTP } from "@notchnotch/sdk";
 
 const api = localHTTP("api");
 const events = new ConnectionStream("events");
@@ -72,13 +72,10 @@ function ConnectionQuestions() {
   }
 
   return <>
-    <Activity id="zeytun" title="Zeytun" phase="paused">
-      <Activity.Compact leading={<Symbol name="network" />} trailing={<Text size="caption">{pending.length}</Text>} />
-      <Activity.Expanded>
-        <Button title="Connect Zeytun" onPress={() => { void events.open().catch((error) => setError(String(error))); }} />
-        {error ? <Text tone="warning">{error.slice(0, 4096)}</Text> : null}
-      </Activity.Expanded>
-    </Activity>
+    <Settings>
+      <Button title="Connect Zeytun" onPress={() => { void events.open().catch((error) => setError(String(error))); }} />
+      {error ? <Text tone="warning">{error.slice(0, 4096)}</Text> : null}
+    </Settings>
     {pending.slice(0, 8).map((connection) => <Prompt key={connection.id} id={connection.id} title="New connection">
       <Prompt.Expanded>
         <Text>{connection.host}</Text>
@@ -144,4 +141,4 @@ Call `stream.subscribe` before `stream.open`, or use `JSONRPCClient` which insta
 
 ## Included Music extension
 
-Music also uses the generic stdio/JSON-RPC path. Open its activity and click **Connect music**, then grant session access to the bundled adapter. It reads existing Automation grants silently; **Connect Spotify** / **Connect Apple Music** request access explicitly. Track discovery, playback commands, errors and OS permissions belong to `extensions/music/helper-src`. The host retains reusable player UI only. Disconnect/reload terminates the helper; the activity offers an explicit reconnect instead of reopening it or replaying a command. See [the adapter contract](../extensions/music/README.md).
+Music also uses the generic stdio/JSON-RPC path. Open **Settings & Extensions… → Extensions → Music → Setup** and choose **Connect Spotify** or **Connect Apple Music**, then grant session access to the bundled adapter. It reads existing Automation grants silently; **Connect Spotify** / **Connect Apple Music** request access explicitly. Track discovery, playback commands, errors and OS permissions belong to `extensions/music/helper-src`. The host retains reusable player UI only. Disconnect/reload terminates the helper; its settings panel offers an explicit reconnect instead of reopening it or replaying a command. See [the adapter contract](../extensions/music/README.md).

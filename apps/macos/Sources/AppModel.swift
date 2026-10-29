@@ -2,10 +2,31 @@ import AppKit
 import Observation
 import NotchCore
 import NotchProtocol
+import NotchExtensions
 
 @MainActor @Observable
 final class AppModel {
     var platform = PlatformState()
+    private(set) var installedExtensions: [InstalledExtension] = []
+    private(set) var libraryIssues: [String: String] = [:]
+    private(set) var extensionSettings: [String: UINode] = [:]
+    private(set) var extensionSessionIDs: [String: UUID] = [:]
+    private var snapshotRevisions: [String: Int] = [:]
+    private var disabledExtensionIDs = Set(UserDefaults.standard.stringArray(forKey: "disabledExtensionIDs") ?? [])
+    private var installingIDs: Set<String> = []
+    var expandOnHover: Bool = UserDefaults.standard.object(forKey: "expandOnHover") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(expandOnHover, forKey: "expandOnHover")
+            hoverTask?.cancel()
+            hover.reset()
+            onLayoutChange?()
+        }
+    }
+    var extensionStore: ExtensionStore {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        return ExtensionStore(directory: support.appendingPathComponent("NotchNotch/Extensions"))
+    }
     var errors: [String: String] = [:]
     var notchWidth: CGFloat = 180
     var topHeight: CGFloat = 34
@@ -18,6 +39,8 @@ final class AppModel {
     private var idlePinned = false
     var hoverExpanded: Bool { hover.isExpanded }
     var onLayoutChange: (() -> Void)?
+    var onOpenManagement: (() -> Void)?
+    var onRevealActivity: ((SurfaceKey) -> Void)?
     private var pointerInside = false
     private var suppressHover = false
     private var hoverTask: Task<Void, Never>?
@@ -66,62 +89,112 @@ final class AppModel {
         }
     }
 
-    func reloadExtensions(force: Bool = false) {
-        do {
-            let folders = try FileManager.default.contentsOfDirectory(at: extensionRoot, includingPropertiesForKeys: [.isDirectoryKey])
-                .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            var candidates: [(URL, ExtensionManifest)] = []
-            for folder in folders {
-                do {
-                    let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(contentsOf: folder.appendingPathComponent("notchnotch.json")))
-                    try manifest.validate()
-                    guard !candidates.contains(where: { $0.1.id == manifest.id }) else {
-                        throw ProtocolError.invalid("Duplicate extension identifier")
+    func reloadExtensions(force: Bool = false, restarting: String? = nil) {
+        let scan = extensionStore.scan(included: extensionRoot, development: ProcessInfo.processInfo.environment["NOTCHNOTCH_EXTENSIONS"] != nil)
+        if installedExtensions != scan.extensions { installedExtensions = scan.extensions }
+        if libraryIssues != scan.issues { libraryIssues = scan.issues }
+        let candidates = scan.extensions.filter { isEnabled($0.id) && !installingIDs.contains($0.id) }
+        let ids = Set(candidates.map(\.id))
+        for id in connections.keys.filter({ !ids.contains($0) }) { stopExtension(id) }
+        for record in candidates {
+            let manifest = record.manifest
+            do {
+                let bundle = record.directory.appendingPathComponent(manifest.entry)
+                let modified = try bundle.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate ?? .distantPast
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                let revision = "\(record.directory.path):\(modified.timeIntervalSinceReferenceDate):\(try encoder.encode(manifest).base64EncodedString())"
+                guard force || restarting == manifest.id || reloads[manifest.id] != revision else { continue }
+                stopExtension(manifest.id)
+                let sessionID = UUID()
+                extensionSessionIDs[manifest.id] = sessionID
+                let connection = RunnerConnection(manifest: manifest, directory: record.directory) { [weak self] snapshot in
+                    guard let self, self.extensionSessionIDs[manifest.id] == sessionID else { return }
+                    guard snapshot.revision > self.snapshotRevisions[manifest.id, default: 0] else { return }
+                    do {
+                        try self.platform.apply(snapshot, expectedExtensionID: manifest.id, allowPeek: !self.isExpanded)
+                        self.snapshotRevisions[manifest.id] = snapshot.revision
+                        if self.extensionSettings[manifest.id] != snapshot.settings { self.extensionSettings[manifest.id] = snapshot.settings }
                     }
-                    candidates.append((folder, manifest))
-                    errors.removeValue(forKey: folder.lastPathComponent)
-                } catch { errors[folder.lastPathComponent] = error.localizedDescription }
-            }
-            let ids = Set(candidates.map { $0.1.id })
-            for id in connections.keys.filter({ !ids.contains($0) }) {
-                connections.removeValue(forKey: id)?.stop()
-                platform.removeExtension(id)
-                reloads.removeValue(forKey: id)
-                errors.removeValue(forKey: id)
-            }
-            for (folder, manifest) in candidates.sorted(by: { $0.1.name < $1.1.name }) {
-                do {
-                    let bundle = folder.appendingPathComponent(manifest.entry)
-                    let modified = try bundle.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate ?? .distantPast
-                    let encoder = JSONEncoder()
-                    encoder.outputFormatting = [.sortedKeys]
-                    let revision = "\(modified.timeIntervalSinceReferenceDate):\(try encoder.encode(manifest).base64EncodedString())"
-                    guard force || reloads[manifest.id] != revision else { continue }
-                    connections[manifest.id]?.stop()
-                    platform.removeExtension(manifest.id)
-                    errors.removeValue(forKey: manifest.id)
-                    let connection = RunnerConnection(manifest: manifest, directory: folder) { [weak self] snapshot in
-                        guard let self else { return }
-                        do { try self.platform.apply(snapshot, expectedExtensionID: manifest.id, allowPeek: !self.isExpanded) }
-                        catch { self.errors[manifest.id] = error.localizedDescription }
-                        self.synchronizePeek()
-                        self.onLayoutChange?()
-                    } onFailure: { [weak self] message in
-                        guard let self else { return }
-                        self.platform.removeExtension(manifest.id)
-                        self.synchronizePeek()
-                        self.errors[manifest.id] = message
-                        self.onLayoutChange?()
-                    }
-                    connections[manifest.id] = connection
-                    reloads[manifest.id] = revision
-                    try connection.start(executable: runnerURL, bundle: bundle)
-                } catch { errors[manifest.id] = error.localizedDescription }
-            }
-            errors.removeValue(forKey: "host")
-        } catch { errors["host"] = error.localizedDescription }
+                    catch { self.errors[manifest.id] = error.localizedDescription }
+                    self.synchronizePeek()
+                    self.onLayoutChange?()
+                } onFailure: { [weak self] message in
+                    guard let self, self.extensionSessionIDs[manifest.id] == sessionID else { return }
+                    self.extensionSessionIDs.removeValue(forKey: manifest.id)
+                    self.platform.removeExtension(manifest.id)
+                    self.extensionSettings.removeValue(forKey: manifest.id)
+                    self.synchronizePeek()
+                    self.errors[manifest.id] = message
+                    self.onLayoutChange?()
+                }
+                connections[manifest.id] = connection
+                reloads[manifest.id] = revision
+                try connection.start(executable: runnerURL, bundle: bundle)
+            } catch { errors[manifest.id] = error.localizedDescription }
+        }
         synchronizePeek()
         onLayoutChange?()
+    }
+
+    func isEnabled(_ id: String) -> Bool { !disabledExtensionIDs.contains(id) }
+    func isRunning(_ id: String) -> Bool { connections[id] != nil && errors[id] == nil }
+    func hasRendered(_ id: String) -> Bool { snapshotRevisions[id] != nil }
+    subscript(enabledFor id: String) -> Bool {
+        get { isEnabled(id) }
+        set { setEnabled(newValue, for: id) }
+    }
+    func setEnabled(_ enabled: Bool, for id: String) {
+        guard isEnabled(id) != enabled else { return }
+        if enabled { disabledExtensionIDs.remove(id) } else { disabledExtensionIDs.insert(id) }
+        UserDefaults.standard.set(disabledExtensionIDs.sorted(), forKey: "disabledExtensionIDs")
+        reloadExtensions()
+    }
+    func canRevealActivity(_ id: String) -> Bool { platform.surfaces.contains { $0.key.extensionID == id } }
+    func revealActivity(_ id: String) {
+        if let key = platform.surfaces.first(where: { $0.key.extensionID == id })?.key { onRevealActivity?(key) }
+    }
+    func restartExtension(_ id: String) { reloadExtensions(restarting: id) }
+    func disconnectExtension(_ id: String) { connections[id]?.resetConnections() }
+    private func stopExtension(_ id: String) {
+        extensionSessionIDs.removeValue(forKey: id)
+        connections.removeValue(forKey: id)?.stop()
+        platform.removeExtension(id)
+        reloads.removeValue(forKey: id)
+        errors.removeValue(forKey: id)
+        extensionSettings.removeValue(forKey: id)
+        snapshotRevisions.removeValue(forKey: id)
+    }
+    func reviewInstall(_ folder: URL) async throws -> ExtensionPackage {
+        let store = extensionStore
+        let package = try await Task.detached(priority: .userInitiated) { try store.inspect(folder) }.value
+        if let existing = installedExtensions.first(where: { $0.id == package.id }), !store.isManaged(existing) {
+            throw ProtocolError.invalid("\(existing.manifest.name) is included with NotchNotch and cannot be replaced. Use a different extension identifier.")
+        }
+        return package
+    }
+    func installExtension(_ package: ExtensionPackage) async throws {
+        // Check again at confirmation time; included/development ids cannot be replaced.
+        if let existing = installedExtensions.first(where: { $0.id == package.id }), !extensionStore.isManaged(existing) {
+            throw ProtocolError.invalid("An included extension already uses this identifier.")
+        }
+        let replacing = installedExtensions.contains { $0.id == package.id }
+        installingIDs.insert(package.id)
+        stopExtension(package.id)
+        defer { installingIDs.remove(package.id); reloadExtensions() }
+        let store = extensionStore
+        _ = try await Task.detached(priority: .userInitiated) { try store.install(package, replacing: replacing) }.value
+    }
+    func removeExtension(_ record: InstalledExtension) async throws {
+        guard extensionStore.isManaged(record) else { throw ProtocolError.invalid("Included extensions can be disabled but not removed.") }
+        installingIDs.insert(record.id)
+        stopExtension(record.id)
+        defer { installingIDs.remove(record.id); reloadExtensions() }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            NSWorkspace.shared.recycle([record.directory]) { _, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+            }
+        }
     }
 
     func stop() {
@@ -191,7 +264,7 @@ final class AppModel {
         guard !platform.isExpanded, !idlePinned, !isPeeking, !suppressHover else { return }
         hover.pointerChanged(inside: inside)
         onLayoutChange?()
-        guard let deadline = hover.deadline else { return }
+        guard expandOnHover, let deadline = hover.deadline else { return }
         hoverTask = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow))) }
             catch { return }
@@ -244,6 +317,15 @@ final class AppModel {
     func send(extensionID: String, action: String, value: String?) {
         // Once the user interacts, leaving the hover region must not dismiss a form.
         if !platform.isExpanded { pinOpen() }
+        connections[extensionID]?.send(action: action, value: value)
+    }
+    func sendSettings(extensionID: String, action: String, value: String?) {
+        // Setup actions use the same runner but never focus or pin the notch.
+        guard isEnabled(extensionID), let settings = extensionSettings[extensionID] else { return }
+        func containsAction(_ node: UINode) -> Bool {
+            (node.props.action == action && node.props.disabled != true) || node.children.contains(where: containsAction)
+        }
+        guard containsAction(settings) else { return }
         connections[extensionID]?.send(action: action, value: value)
     }
 }

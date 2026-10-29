@@ -29,6 +29,9 @@
       "items": {
         "$ref": "#/$defs/surface"
       }
+    },
+    "settings": {
+      "$ref": "#/$defs/settingsNode"
     }
   },
   "additionalProperties": false,
@@ -385,6 +388,34 @@
         }
       },
       "additionalProperties": false
+    },
+    "settingsNode": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/node"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "column",
+                "row",
+                "text",
+                "symbol",
+                "progress",
+                "button",
+                "textField"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/settingsNode"
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

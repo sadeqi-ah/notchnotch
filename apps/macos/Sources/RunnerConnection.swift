@@ -50,7 +50,7 @@ final class RunnerConnection {
             let status = process.terminationStatus
             Task { @MainActor in
                 guard let self, !self.stopping else { return }
-                self.fail("\(self.manifest.name) stopped (exit \(status)). Restart demos to try again.")
+                self.fail("\(self.manifest.name) stopped (exit \(status)). Restart extensions to try again.")
             }
         }
         do { try process.run() }

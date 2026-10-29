@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventMonitors: [Any] = []
     private var pointerTimer: Timer?
     private var pagingGesture = ActivityPagingGesture()
+    private var managementController: ManagementWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -31,6 +32,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = NSHostingView(rootView: NotchView(model: model) { [weak panel] in panel?.makeKey() })
         self.panel = panel
         model.onLayoutChange = { [weak self] in self?.layoutPanel() }
+        model.onOpenManagement = { [weak self] in
+            guard let self else { return }
+            self.openManagement(extensionID: self.model.displayedSurface?.key.extensionID)
+        }
+        model.onRevealActivity = { [weak self] key in
+            self?.model.open(key)
+            self?.panel?.makeKey()
+            self?.panel?.orderFrontRegardless()
+        }
         makeMenu()
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
@@ -99,10 +109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "NotchNotch · Developer Preview", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         for (title, action, key) in [
+            ("Settings & Extensions…", #selector(showManagement), ","),
             ("Show activities", #selector(showActivities), ""),
             ("Show pending question", #selector(showPrompt), ""),
             ("Preview announcement", #selector(previewAnnouncement), ""),
-            ("Restart demos", #selector(restart), "r"),
+            ("Restart extensions", #selector(restart), "r"),
             ("Disconnect extension connections", #selector(disconnectExtensions), ""),
             ("Quit NotchNotch", #selector(quit), "q"),
         ] {
@@ -164,6 +175,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func screenChanged() { layoutPanel() }
+    @objc private func showManagement() { openManagement() }
+    private func openManagement(extensionID: String? = nil) {
+        model.close()
+        if managementController == nil { managementController = ManagementWindowController(model: model) }
+        managementController?.reveal(extensionID: extensionID)
+    }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showManagement()
+        return false
+    }
     @objc private func showActivities() { model.openFirst(); panel?.makeKey(); panel?.orderFrontRegardless() }
     @objc private func showPrompt() { model.openPrompt(); panel?.makeKey(); panel?.orderFrontRegardless() }
     @objc private func previewAnnouncement() { model.previewAnnouncement(); panel?.orderFrontRegardless() }

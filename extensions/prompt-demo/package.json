@@ -1,1 +1,0 @@
-{"name":"@notchnotch/extension-prompt-demo","version":"0.1.0","private":true,"type":"module","dependencies":{"@notchnotch/sdk":"workspace:*","@notchnotch/runtime":"workspace:*","react":"19.3.1"}}

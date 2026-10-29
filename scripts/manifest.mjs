@@ -2,10 +2,13 @@ const allowedPermissions = new Set(["local-network", "process"]);
 
 export function validateManifest(manifest) {
   const invalid = () => { throw new Error(`Unsupported manifest: ${manifest.id ?? "unknown"}`); };
-  if (!/^[a-z][a-z0-9.-]{2,79}$/.test(manifest.id) || typeof manifest.name !== "string" || !manifest.name ||
+  if (!/^[a-z][a-z0-9.-]{2,79}$/.test(manifest.id) || typeof manifest.name !== "string" || !manifest.name || manifest.name.length > 128 ||
+      typeof manifest.version !== "string" || !manifest.version || manifest.version.length > 64 ||
       manifest.apiVersion !== 1 || manifest.entry !== "bundle.js" || !Array.isArray(manifest.permissions) ||
       new Set(manifest.permissions).size !== manifest.permissions.length ||
       manifest.permissions.some((permission) => !allowedPermissions.has(permission))) invalid();
+  if ((manifest.icon !== undefined && (typeof manifest.icon !== "string" || manifest.icon.length > 128)) ||
+      (manifest.description !== undefined && (typeof manifest.description !== "string" || manifest.description.length > 512))) invalid();
   const connections = manifest.connections ?? {};
   if (!connections || typeof connections !== "object" || Array.isArray(connections) || Object.keys(connections).length > 8) invalid();
   for (const [id, value] of Object.entries(connections)) {

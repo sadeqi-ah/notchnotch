@@ -43,30 +43,6 @@ importers:
         specifier: 19.3.1
         version: 19.3.1
 
-  extensions/prompt-demo:
-    dependencies:
-      '@notchnotch/runtime':
-        specifier: workspace:*
-        version: link:../../packages/runtime
-      '@notchnotch/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-      react:
-        specifier: 19.3.1
-        version: 19.3.1
-
-  extensions/timer:
-    dependencies:
-      '@notchnotch/runtime':
-        specifier: workspace:*
-        version: link:../../packages/runtime
-      '@notchnotch/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-      react:
-        specifier: 19.3.1
-        version: 19.3.1
-
   packages/protocol: {}
 
   packages/react-renderer:
