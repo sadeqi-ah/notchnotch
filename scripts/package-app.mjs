@@ -35,6 +35,8 @@ export async function packageApp() {
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppleEventsUsageDescription</key><string>Allow extensions you choose to read and control other applications.</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>Allow the Calendar extension to read selected calendars and show upcoming events in the notch.</string>
+<key>NSCalendarsUsageDescription</key><string>Allow the Calendar extension to show upcoming events in the notch.</string>
 </dict></plist>
 `);
   for (const target of [path.join(contents, "Helpers/ExtensionRunner"), app]) {

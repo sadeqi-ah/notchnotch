@@ -2,7 +2,7 @@
 
 A shared space in the Mac notch for live activities and quick questions.
 
-This is a working developer preview: a native AppKit/SwiftUI host, a separate JavaScriptCore process for each extension, a React renderer, and a bundled Music extension. It is intended for local development with trusted code.
+This is a working developer preview: a native AppKit/SwiftUI host, a separate JavaScriptCore process for each extension, a React renderer, and bundled Music and Calendar extensions. It is intended for local development with trusted code.
 
 ## Run
 
@@ -18,6 +18,7 @@ The app appears at the top of the built-in notched display, or as a small pill o
 - When nothing is active, the app is completely hidden behind the physical notch. Installed or paused extensions do not keep it visible.
 - A short hover reveals the idle notch, or slightly enlarges an active notch and adds a soft shadow. Dwell for 850 ms to open its full view; leaving closes a hover preview after 180 ms. Click to pin it open.
 - Open **Settings & Extensions… → Extensions → Music → Setup**. Choose **Connect Spotify** or **Connect Apple Music** there to start its bundled helper and request access. Music appears in the notch when a connected player has a track; its notch UI contains playback controls. The music extension shows real album artwork, a playback waveform, title/artist, seek bar, shuffle, previous/play/next, and repeat controls.
+- Open **Settings & Extensions… → Calendar → Setup → Connect Calendar** to grant access to calendars on this Mac. Choose which calendars to include. The next timed event has a live countdown, date/time, calendar and location, plus **Join meeting** when it has a supported meeting link. It appears 15 minutes before the event and stays until it ends; hover previews events further away. All-day, cancelled and declined events are excluded. No events are edited.
 - Pausing hides an unpinned music activity; a new song briefly shows its announcement before returning to compact playback. A pinned player remains open when paused.
 - Click either side of the compact surface to expand the selected activity.
 - New announcements briefly show a third, intermediate state: the compact wings plus a text row below the camera, then collapse automatically after four seconds. Click to open the activity, or use **Preview announcement** in the menu bar to try it again.
@@ -46,7 +47,7 @@ The app contains its runner and extension bundles; Node.js is not needed to run 
 pnpm test
 ```
 
-This checks TypeScript, builds the React bundles, runs Swift tests for presentation policy, JavaScriptCore and real loopback HTTP/WebSocket/stdio connections, then launches actual runner processes to verify runtime updates and prompts with a test-only fixture, plus music commands and the bundled music helper. Tests that bind loopback listeners need local network access.
+This checks TypeScript, builds the React bundles, runs Swift tests for presentation policy, JavaScriptCore and real loopback HTTP/WebSocket/stdio connections, then launches actual runner processes to verify runtime updates and prompts with a test-only fixture, plus music commands, Calendar state changes and the bundled native helpers. Tests that bind loopback listeners need local network access.
 
 ## Project layout
 
@@ -64,7 +65,7 @@ This checks TypeScript, builds the React bundles, runs Swift tests for presentat
 | `packages/react-renderer` | Internal React reconciler adapter |
 | `packages/runtime` | React mounting and event dispatch |
 | `packages/protocol` | TypeScript wire models |
-| `extensions` | Bundled Music integration |
+| `extensions` | Bundled Music and Calendar integrations |
 | `tests/fixtures` | Runtime integration fixtures, excluded from the app |
 | `schemas` | Manifest and snapshot contracts |
 
@@ -78,3 +79,5 @@ Process separation provides crash isolation; this preview does **not** implement
 
 
 Music integration supports the installed Spotify and Apple Music desktop apps through their scripting interfaces. It does not capture system audio and does not use private MediaRemote APIs. The extension bundles its own native adapter and uses the same generic JSON-RPC/stdio SDK as external integrations. Playback controls respond immediately while that helper waits for confirmation; seeking holds its target through stale samples, and command failures restore the player state and display an error. The waveform indicates playback and is decorative, rather than measured audio levels. Apple Music must be installed to connect; denied access is reported in the app and can be granted in System Settings → Privacy & Security → Automation.
+
+The Calendar extension uses public EventKit APIs through its own bundled helper. It reads accounts already added to macOS Calendar, including calendars synced from iCloud, Google or Exchange; it does not log into cloud services directly. Setup requests macOS Calendar access only when you click Connect. Calendar selection is stored locally by the helper. See [the Calendar adapter contract](extensions/calendar/README.md).

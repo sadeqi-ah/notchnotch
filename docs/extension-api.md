@@ -100,6 +100,12 @@ await rpc.request("music/command", { command: "seek", value: 0.5 });
 These `music/*` methods are the bundled extension's protocol, not host APIs. See [the Music adapter contract](../extensions/music/README.md). The old `useNowPlaying`, `controlMedia` and `media` permission have been removed from this preview. A paused surface should use `phase="paused"` so it remains in the switcher while its compact wings stay hidden. The artwork component accepts approved HTTPS artwork CDNs and bounded JPEG/PNG data, not filesystem URLs.
 
 
+## Calendar extension
+
+The bundled Calendar extension uses the same `process`/`stdio` connection API as Music. Its `CalendarAdapter.app` owns EventKit access, calendar selection and meeting links; no calendar-specific host permission or native UI component is required. It requests full EventKit access only after **Connect Calendar** (macOS has no read-only event permission), and implements reading only. The helper and responsible host bundle include the Calendar usage descriptions.
+
+`calendar/connect`, `calendar/getState` and `calendar/select` return authorization, selected calendars and upcoming timed events. `calendar/state` notifications refresh the React UI after store changes or a 15-second poll. `calendar/open` and `calendar/join` are explicit user actions. See [the adapter contract](../extensions/calendar/README.md) for payloads and behavior.
+
 ## Idle hover selection
 
 The resting notch remains hidden for paused extensions. On hover, the host reveals the current compact activity first, then a pending question, then the most recently used activity, then an extension-declared resumable fallback. Opening an activity or a genuine phase transition records recency; routine metadata/progress updates do not reorder it. Click and long hover open the same chosen surface. If no contextual surface exists, neutral hub icons open the activity hub instead.

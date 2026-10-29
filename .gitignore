@@ -1,9 +1,39 @@
-.build/
+# Dependencies and generated builds
 node_modules/
 .pnpm-store/
-dist/
-.DS_Store
+.build/
 .swiftpm/
+dist/
+DerivedData/
+*.tsbuildinfo
+
+# Test and diagnostic output
+coverage/
+*.xcresult/
+*.log
+*.ips
+
+# macOS and per-user Xcode state
+.DS_Store
+._*
 *.xcuserstate
 xcuserdata/
+
+# Local environment and signing credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.p12
+*.p8
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
+
+# Packaged release artifacts
+*.app/
+*.dSYM/
+*.dmg
+*.pkg
 

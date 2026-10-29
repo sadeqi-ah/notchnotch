@@ -1,0 +1,17 @@
+{
+  "id": "dev.notchnotch.calendar",
+  "name": "Calendar",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "entry": "bundle.js",
+  "permissions": ["process"],
+  "connections": {
+    "calendar": {
+      "transport": "stdio",
+      "executable": "./helpers/CalendarAdapter.app/Contents/MacOS/CalendarAdapter",
+      "arguments": []
+    }
+  },
+  "icon": "calendar",
+  "description": "Your next event, with a live countdown and meeting controls. Connect the calendars already on your Mac."
+}

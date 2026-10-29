@@ -8,6 +8,7 @@ let package = Package(
         .executable(name: "NotchNotch", targets: ["NotchNotch"]),
         .executable(name: "ExtensionRunner", targets: ["ExtensionRunner"]),
         .executable(name: "MusicAdapter", targets: ["MusicAdapter"]),
+        .executable(name: "CalendarAdapter", targets: ["CalendarAdapter"]),
     ],
     targets: [
         .target(name: "NotchProtocol", path: "native/NotchProtocol/Sources"),
@@ -18,6 +19,9 @@ let package = Package(
         .target(name: "NotchRenderer", dependencies: ["NotchProtocol", "NotchCore"], path: "native/NotchRenderer/Sources"),
         .executableTarget(name: "ExtensionRunner", dependencies: ["NotchRuntime"], path: "native/ExtensionRunner/Sources"),
         .executableTarget(name: "MusicAdapter", dependencies: ["NotchCore", "NotchProtocol"], path: "extensions/music/helper-src"),
+        .target(name: "CalendarSupport", path: "extensions/calendar/helper-core"),
+        .executableTarget(name: "CalendarAdapter", dependencies: ["CalendarSupport", "NotchProtocol"], path: "extensions/calendar/helper-src"),
+        .testTarget(name: "CalendarSupportTests", dependencies: ["CalendarSupport"], path: "extensions/calendar/helper-tests"),
         .executableTarget(name: "NotchNotch", dependencies: ["NotchCore", "NotchRenderer", "NotchConnections", "NotchExtensions"], path: "apps/macos/Sources"),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"], path: "native/NotchCore/Tests"),
         .testTarget(name: "NotchRuntimeTests", dependencies: ["NotchRuntime"], path: "native/NotchRuntime/Tests"),

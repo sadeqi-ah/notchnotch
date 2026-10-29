@@ -227,3 +227,91 @@ test("The packaged music helper speaks bounded JSON-RPC and rejects unsupported 
     assert.equal(runner.messages.filter((message) => message.id === "unknown").length, 1);
   } finally { await runner.stop(); }
 });
+
+test("Calendar connects explicitly, selects calendars, and follows event changes and access revocation", async () => {
+  const runner = launch("calendar", "dev.notchnotch.calendar");
+  const now = Date.now() / 1000;
+  const distant = { id: "meeting-1", title: "Project review", calendarID: "work", calendarTitle: "Work",
+    start: now + 3600, end: now + 5400, location: "Meeting room", meetingURL: "https://meet.google.com/abc-defg-hij" };
+  const choices = [{ id: "work", title: "Work", selected: true }, { id: "personal", title: "Personal", selected: true }];
+  const status = (events = [], extra = {}) => ({ authorization: "authorized", calendars: choices, events, ...extra });
+  function incoming(sessionID, message) {
+    runner.message({ type: "connectionEvent", connectionID: "calendar", sessionID, event: "message", message });
+  }
+  function acknowledge(command, result) {
+    runner.message({ type: "connectionResponse", requestID: command.requestID, result: null });
+    if (command.message?.id) incoming(command.sessionID, { jsonrpc: "2.0", id: command.message.id, result });
+  }
+  try {
+    const initial = await runner.wait((message) => !!message.settings);
+    assert.deepEqual(initial.surfaces, []);
+    assert.equal(runner.messages.some((message) => message.type === "connectionCommand"), false);
+    runner.send(action({ expanded: initial.settings }, "Connect Calendar"));
+    const open = await runner.waitMessage((message) => message.operation === "open");
+    assert.equal(open.connectionID, "calendar");
+    acknowledge(open);
+    const connect = await runner.waitMessage((message) => message.message?.method === "calendar/connect");
+    acknowledge(connect, status([distant]));
+    const upcoming = await runner.wait((message) => message.surfaces[0]?.title === distant.title);
+    assert.equal(upcoming.surfaces[0].phase, "paused");
+    assert.equal(upcoming.surfaces[0].idlePreview, true);
+    assert.equal(upcoming.surfaces[0].peek, undefined);
+    assert.ok(nodes(upcoming.settings).some((node) => node.props.text === "Hide Personal"));
+
+    runner.send(action({ expanded: upcoming.settings }, "Hide Personal"));
+    const select = await runner.waitMessage((message) => message.message?.method === "calendar/select");
+    assert.deepEqual(select.message.params, { ids: ["work"] });
+    acknowledge(select, status([distant], { calendars: [choices[0], { ...choices[1], selected: false }] }));
+    await runner.wait((message) => nodes(message.settings).some((node) => node.props.text === "Show Personal"));
+
+    const soon = { ...distant, start: now + 600, end: now + 2400 };
+    incoming(open.sessionID, { method: "calendar/state", params: status([soon]) });
+    const imminent = await runner.wait((message) => message.surfaces[0]?.phase === "active");
+    assert.equal(imminent.surfaces[0].peek.id, "meeting-1:soon");
+    assert.match(imminent.surfaces[0].peek.text, /Project review/);
+
+    runner.send(action(imminent.surfaces[0], "Join meeting"));
+    const join = await runner.waitMessage((message) => message.message?.method === "calendar/join");
+    assert.deepEqual(join.message.params, { id: distant.id });
+    acknowledge(join, null);
+    const ongoing = { ...soon, start: now - 300, end: now + 1500 };
+    incoming(open.sessionID, { method: "calendar/state", params: status([ongoing]) });
+    const active = await runner.wait((message) => message.surfaces[0]?.peek?.id === "meeting-1:started");
+    const progress = nodes(active.surfaces[0].expanded).find((node) => node.type === "progress");
+    assert.ok(progress.props.value > 0 && progress.props.value < 1);
+
+    incoming(open.sessionID, { method: "calendar/state", params: status([{ ...ongoing, end: now - 1 }]) });
+    const ended = await runner.wait((message) => message.revision > active.revision && !message.surfaces.length);
+    assert.ok(nodes(ended.settings).some((node) => /No upcoming timed events/.test(node.props.text ?? "")));
+
+    incoming(open.sessionID, { method: "calendar/state", params: status([], { authorization: "denied", calendars: [], error: "Calendar access denied" }) });
+    const denied = await runner.wait((message) => nodes(message.settings).some((node) => node.props.text === "Calendar access denied"));
+    assert.deepEqual(denied.surfaces, []);
+    assert.ok(nodes(denied.settings).some((node) => node.props.text === "Connect Calendar"));
+    runner.message({ type: "connectionEvent", connectionID: "calendar", sessionID: open.sessionID, event: "closed" });
+    await runner.wait((message) => nodes(message.settings).some((node) => /Calendar disconnected/.test(node.props.text ?? "")));
+    assert.equal(runner.messages.filter((message) => message.operation === "open").length, 1);
+  } finally { await runner.stop(); }
+});
+
+test("The Calendar helper exposes status without prompting and rejects unsupported operations", async () => {
+  const runner = launchProcess(path.join(root, "dist/extensions/calendar/helpers/CalendarAdapter.app/Contents/MacOS/CalendarAdapter"), []);
+  function request(id, method, params) {
+    runner.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  }
+  try {
+    request("status", "calendar/getState");
+    const response = await runner.waitMessage((message) => message.id === "status");
+    assert.equal(response.jsonrpc, "2.0");
+    assert.ok(["authorized", "notDetermined", "denied", "restricted", "writeOnly"].includes(response.result.authorization));
+    assert.ok(Array.isArray(response.result.events));
+    assert.ok(Array.isArray(response.result.calendars));
+    if (response.result.authorization !== "authorized") assert.deepEqual(response.result.events, []);
+    request("write", "calendar/deleteEvent", { id: "anything" });
+    assert.equal((await runner.waitMessage((message) => message.id === "write")).error.code, -32601);
+    request("selection", "calendar/select", { ids: [42] });
+    assert.equal((await runner.waitMessage((message) => message.id === "selection")).error.code, -32602);
+    request("join", "calendar/join", { id: "missing-event" });
+    assert.equal((await runner.waitMessage((message) => message.id === "join")).error.code, -32602);
+  } finally { await runner.stop(); }
+});
