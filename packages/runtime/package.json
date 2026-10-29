@@ -1,0 +1,1 @@
+{"name":"@notchnotch/runtime","version":"0.1.0","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"@notchnotch/react-renderer":"workspace:*","@notchnotch/protocol":"workspace:*","react":"19.3.1"}}

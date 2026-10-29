@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NotchNotch extension manifest v1 preview",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "version",
+    "apiVersion",
+    "entry",
+    "permissions"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]{2,79}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string"
+    },
+    "apiVersion": {
+      "const": 1
+    },
+    "entry": {
+      "const": "bundle.js"
+    },
+    "permissions": {
+      "type": "array",
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "media"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

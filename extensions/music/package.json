@@ -1,0 +1,1 @@
+{"name":"@notchnotch/extension-music","private":true,"type":"module","dependencies":{"@notchnotch/sdk":"workspace:*","@notchnotch/runtime":"workspace:*","react":"19.3.1"}}

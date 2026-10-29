@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["react"],
+    "baseUrl": ".",
+    "paths": {
+      "@notchnotch/sdk": ["packages/sdk/src/index.tsx"],
+      "@notchnotch/protocol": ["packages/protocol/src/index.ts"],
+      "@notchnotch/runtime": ["packages/runtime/src/index.ts"],
+      "@notchnotch/react-renderer": ["packages/react-renderer/src/index.ts"]
+    }
+  },
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "extensions/**/*.tsx"]
+}

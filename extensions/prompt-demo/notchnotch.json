@@ -1,0 +1,8 @@
+{
+  "id": "dev.notchnotch.prompt-demo",
+  "name": "Quick question",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "entry": "bundle.js",
+  "permissions": []
+}

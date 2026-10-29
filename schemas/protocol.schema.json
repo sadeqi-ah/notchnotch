@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NotchNotch snapshot v1",
+  "type": "object",
+  "required": [
+    "protocolVersion",
+    "type",
+    "extensionID",
+    "revision",
+    "surfaces"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "const": 1
+    },
+    "type": {
+      "const": "snapshot"
+    },
+    "extensionID": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "surfaces": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/surface"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "surface": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "initialView",
+        "phase",
+        "expanded"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "enum": [
+            "activity",
+            "prompt"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "initialView": {
+          "enum": [
+            "compact",
+            "expanded"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "active",
+            "paused",
+            "completed",
+            "pending"
+          ]
+        },
+        "compact": {
+          "type": "object",
+          "required": [
+            "leading",
+            "trailing"
+          ],
+          "properties": {
+            "leading": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/node"
+              }
+            },
+            "trailing": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/node"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "expanded": {
+          "$ref": "#/$defs/node"
+        },
+        "peek": {
+          "type": "object",
+          "required": [
+            "id",
+            "text",
+            "duration"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "duration": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10
+            }
+          },
+          "additionalProperties": false
+        },
+        "idlePreview": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "initialView": {
+                "const": "compact"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "compact"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "prompt"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "const": "pending"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "phase": {
+                "enum": [
+                  "active",
+                  "paused",
+                  "completed"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "peek"
+            ]
+          },
+          "then": {
+            "required": [
+              "compact"
+            ],
+            "properties": {
+              "kind": {
+                "const": "activity"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "idlePreview"
+            ],
+            "properties": {
+              "idlePreview": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "compact"
+            ],
+            "properties": {
+              "kind": {
+                "const": "activity"
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "props",
+        "children"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "enum": [
+            "column",
+            "row",
+            "text",
+            "symbol",
+            "progress",
+            "button",
+            "textField",
+            "artwork",
+            "waveform",
+            "player"
+          ]
+        },
+        "props": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "name": {
+              "type": "string"
+            },
+            "tone": {
+              "enum": [
+                "primary",
+                "secondary",
+                "accent",
+                "success",
+                "warning"
+              ]
+            },
+            "size": {
+              "enum": [
+                "caption",
+                "body",
+                "title",
+                "timer"
+              ]
+            },
+            "value": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "action": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "placeholder": {
+              "type": "string"
+            },
+            "disabled": {
+              "type": "boolean"
+            },
+            "source": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "media": {
+              "$ref": "#/$defs/nowPlaying"
+            }
+          },
+          "additionalProperties": false
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "nowPlaying": {
+      "type": "object",
+      "required": [
+        "id",
+        "eventID",
+        "player",
+        "title",
+        "artist",
+        "album",
+        "duration",
+        "position",
+        "isPlaying",
+        "volume",
+        "shuffle",
+        "repeating",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "eventID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "player": {
+          "enum": [
+            "com.spotify.client",
+            "com.apple.Music"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "artist": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "album": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "artwork": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 604800
+        },
+        "position": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 604800
+        },
+        "isPlaying": {
+          "type": "boolean"
+        },
+        "volume": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "shuffle": {
+          "type": "boolean"
+        },
+        "repeating": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
